@@ -4,9 +4,16 @@
 // and anything after a # are ignored. Non-empty rows must have the same number
 // of columns.
 //
-// Input and output columns are separated by a pipe '|' character.
+// Input and output columns are separated by a pipe '|' character. If there is
+// no pipe on a row then it will be treated as input bits with a single output
+// column having value '1'.
 //
 // Missing rows are treated as having 0 in the output column.
+//
+// Rows may start with @label (followed by whitespace) which will be used as the
+// label instead of an automatically generated symbol based on the row number.
+// The program will halt if a generated symbol clashes with a manually provided
+// one.
 //
 // TODO 'x' in input (careful about precedence, requires state)
 //
@@ -20,6 +27,13 @@ import scala.collection.immutable.BitSet
 import java.nio.file.Files
 
 object Main {
+  private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01]+)([|][ 01]+)?$".r
+  private def parseBits(s: String): Seq[Boolean] = s.replace(" ", "").map {
+    case '1' => true
+    case '0' => false
+    // protected by regexps
+  }
+
   def main(args: Array[String]): Unit = {
     require(args.length == 1, "one input file must be provided")
     val file = new File(args(0))
@@ -29,12 +43,11 @@ object Main {
     val canon = Files.readString(file.toPath, UTF_8)
       .split("\n").toList
       .flatMap { line =>
-        val row = line.split("#")(0).replace(" ", "")
-        if (row.isEmpty) None
-        else {
-          require(row.matches("^[01]+\\|[01]+$"), s"only 0 and 1 separated by | are valid, got '$row'")
-          val List(input, output) = row.split('|').toList.map(_.map { case '1' => true ; case '0' => false })
-          Some((input, output))
+        val row = line.split("#")(0)
+        if (row.trim.isEmpty) None
+        else row match {
+          case RowPattern(label, input, null) => Some((parseBits(input), List(1), Option(label)))
+          case RowPattern(label, input, output) => Some((parseBits(input), parseBits(output.tail), Option(label)))
         }
       }
       .filterNot(_._2.toList.distinct == List(false))
@@ -48,8 +61,11 @@ object Main {
     // System.out.println(s"$canon")
 
     val terms = canon.zipWithIndex.map {
-      case ((input, _), i) => Term(input.map(Some(_)).toArray, List(i))
+      case ((input, _, label_), i) =>
+        val label = label_.map(_.tail).getOrElse(i.toString)
+        Term(input.map(Some(_)).toArray, List(label))
     }
+    require(terms.flatMap(_.ps).distinct.length == terms.length, "labels must be unique")
 
     System.out.println(s"${terms.mkString("  ", "\n  ", "\n")}")
 
@@ -61,8 +77,8 @@ object Main {
 case class Term(
   // None is McCluskey's hyphen
   bits: Array[Option[Boolean]],
-  // the row indexes covered by this term
-  ps: List[Int]
+  // the row labels included in this term
+  ps: List[String]
 ) {
   require(bits.nonEmpty)
   require(ps.nonEmpty)
@@ -79,5 +95,5 @@ case class Term(
 }
 
 // Local Variables:
-// scala-compile-suggestion: "sbt \"runMain mccluskey.Main tests/basic.truth\""
+// scala-compile-suggestion: "sbt \"runMain mccluskey.Main tests/tableI.truth\""
 // End:

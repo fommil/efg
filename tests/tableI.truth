@@ -1,4 +1,5 @@
-# truth table for 0 < x < 7, the 1st example in McCluskey56
+# Table I in McCluskey56
+# i.e. explicit truth table for 0 < x < 7
 0 0 0 | 0
 0 0 1 | 1
 0 1 0 | 1
