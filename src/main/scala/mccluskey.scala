@@ -1,4 +1,4 @@
-// Implementation of "Minimization of Boolean Functions" by McCluskey, 1956
+// Implementation of "Minimization of Boolean Functions" by McCluskey56.
 //
 // Input is a file containing an ASCII truth table. Each bit is 0 or 1. Spaces
 // and anything after a # are ignored. Non-empty rows must have the same number
@@ -25,7 +25,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.ArraySeq
+import scala.collection.immutable.{ ArraySeq, TreeMap }
 
 object Main {
   private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01]+)([|][ 01]+)?$".r
@@ -39,9 +39,30 @@ object Main {
     val canon = canonical_representation(input)
     val primes = prime_implicants(canon)
 
-    System.out.println(s"${primes.mkString("  ", "\n  ", "\n")}")
+    // the "prime implicant table" would have columns of distinct labels; and
+    // rows being the bitmask of each term (or a unique shorthand symbol). X
+    // would appear in every cell where the term (row) contains the column's
+    // label. But we don't need to construct the table explicitly.
 
-    // FIXME calculate minimum sum of prime implicants
+    System.out.println(s"${primes.map(_.render).mkString("  ", "\n  ", "\n")}")
+
+    val minimal = minimal_prime_sums(primes)
+    val symbols = primes.map(_.mask).zip(gen_symbols).to(TreeMap)
+
+    System.out.println(symbols)
+
+    System.out.println(s"${minimal.render(symbols)}")
+  }
+
+  def gen_symbols: LazyList[String] = LazyList.from(1).map { i_ =>
+    val buf = new java.lang.StringBuffer
+    var i = i_
+    while (i > 0) {
+      val rem = (i - 1) % 26
+      buf.append(('A' + rem).toChar)
+      i = (i - rem) / 26
+    }
+    buf.reverse.toString
   }
 
   // construct the canonical representation from the user's .truth table
@@ -76,7 +97,7 @@ object Main {
         val label = label_.map(_.tail).getOrElse(i.toString)
         Term(input.map(Some(_)).to(ArraySeq), List(label))
     }
-    require(terms.flatMap(_.ps).distinct.length == terms.length, "labels must be unique")
+    require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
 
     terms
   }
@@ -118,13 +139,23 @@ object Main {
 
     var surface = (terms, List.empty[Term])
     while (surface._1.nonEmpty) {
-      // System.out.println(s"==== STEP ====")
-      // System.out.println(s"${surface._1.mkString("  ", "\n  ", "\n")}")
-      // System.out.println(s"${surface._2.mkString("  ", "\n  ", "\n")}")
-
       surface = step(surface._1, surface._2)
     }
     surface._1 ++ surface._2
+  }
+
+  // this is the novel thing that McCluskey did in his paper that filled in gaps
+  // in Quine52 and those that came before him (McColl, Blake, etc).
+  def minimal_prime_sums(primes: List[Term]): MinSum = {
+    val labels = primes.flatMap(_.labels).distinct.sorted
+
+    val logic = MinSum.And(labels.map { label =>
+      val rows = primes.filter(_ contains label).map(MinSum.Leaf(_))
+      assert(rows.nonEmpty)
+      MinSum.Or(rows)
+    })
+
+    logic.minimise
   }
 
 }
@@ -134,10 +165,13 @@ case class Term(
   // input bits, None is McCluskey's hyphen
   bits: ArraySeq[Option[Boolean]],
   // the row labels included in this term
-  ps: List[String]
+  labels: List[String]
 ) {
   require(bits.nonEmpty)
-  require(ps.nonEmpty)
+  require(labels.nonEmpty)
+
+  // is it worth optimising with a Set[String] lookup?
+  def contains(label: String): Boolean = labels.contains(label)
 
   // // if a sequence of bits matches this, then they also match that.
   // def subsetOf(that: Term): Boolean =
@@ -160,19 +194,49 @@ case class Term(
       case (Some(a), Some(b)) if a == b => Some(a)
       case _ => None
     }
-    val ps_ = ps ++ that.ps
-    Term(bits_, ps_)
+    val labels_ = labels ++ that.labels
+    Term(bits_, labels_)
   }
 
-  override def toString: String = {
+  def mask: String =  {
     val input = bits.map {
       case None => '-'
       case Some(true) => '1'
       case Some(false) => '0'
     }
-    val indexes = ps.mkString("(", ", ", ")")
-    s"${input.mkString} $indexes"
+    input.mkString
   }
+
+  def render: String = {
+    val indexes = labels.mkString("(", ", ", ")")
+    s"$mask $indexes"
+  }
+}
+
+sealed trait MinSum {
+  import MinSum._
+
+  def render(symbols: Map[String, String]): String = this match {
+    case Leaf(term) => symbols.getOrElse(term.mask, term.mask)
+    case And(entries) => entries.map(_.render(symbols)).mkString("")
+    case Or(entries) => entries.map(_.render(symbols)).mkString("(", " + ", ")")
+  }
+
+  // FIXME implement logical simplifications
+  // A . (A + D) = A
+  // A . A = A
+  def minimise: MinSum = this match {
+    case _: Leaf => this
+    case And(List(entry)) => entry
+    case And(entries) => And(entries.map(_.minimise).distinct)
+    case Or(List(entry)) => entry
+    case Or(entries) => Or(entries.map(_.minimise).distinct)
+  }
+}
+object MinSum {
+  case class And(entries: List[MinSum]) extends MinSum
+  case class Or(entries: List[MinSum]) extends MinSum
+  case class Leaf(term: Term) extends MinSum
 }
 
 // Local Variables:
