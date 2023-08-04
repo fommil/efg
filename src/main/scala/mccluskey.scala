@@ -328,6 +328,7 @@ sealed trait MinSum {
           Right(e)
       }
 
+      // TODO unnest the And part for cleaner rendering
       // TODO expand uncommon
       Or(And(c :: Or(common).expand :: Nil) :: uncommon)
 
