@@ -46,11 +46,12 @@ object Main {
 
     System.out.println(s"${primes.map(_.render).mkString("  ", "\n  ", "\n")}")
 
-    val minimal = minimal_prime_sums(primes)
     val symbols = primes.map(_.mask).zip(gen_symbols).to(TreeMap)
-
     System.out.println(symbols)
 
+    val logic = prime_sums(primes)
+    System.out.println(s"${logic.render(symbols)}")
+    val minimal = logic.minimise
     System.out.println(s"${minimal.render(symbols)}")
   }
 
@@ -146,7 +147,7 @@ object Main {
 
   // this is the novel thing that McCluskey did in his paper that filled in gaps
   // in Quine52 and those that came before him (McColl, Blake, etc).
-  def minimal_prime_sums(primes: List[Term]): MinSum = {
+  def prime_sums(primes: List[Term]): MinSum = {
     val labels = primes.flatMap(_.labels).distinct.sorted
 
     val logic = MinSum.And(labels.map { label =>
@@ -155,7 +156,7 @@ object Main {
       MinSum.Or(rows)
     })
 
-    logic.minimise
+    logic
   }
 
 }
@@ -222,20 +223,20 @@ sealed trait MinSum {
     case Or(entries) => entries.map(_.render(symbols)).mkString("(", " + ", ")")
   }
 
-  // Reduces the statement to a canonical minimal form by applying
-  //
-  // A . (A + D) = A
-  // A . A = A
+  // Reduces the boolean statement to a minimal form by applying boolean laws
+  // without complements (i.e. DeMorgan's law is ignored).
   //
   // Iteration may be needed beyond 2-level logic.
+  //
+  // This is probably incredibly inefficient.
   final def minimise: MinSum = this match {
     case _: Leaf => this
-    case And(List(entry)) => entry
     case And(entries) =>
       val (leafs, ors) = {
         // unnest, by associativity
         // A . (B . C) = A . B . C
-        // and extract all the top-level terms
+        // and extract all the top-level terms, rearranging by commutativity
+        // A . B = B . A
         var leafs: List[Leaf] = Nil
         var ors: List[Or] = Nil
         def extract(entry: MinSum): Unit = entry.minimise match {
@@ -244,30 +245,76 @@ sealed trait MinSum {
           case or: Or => ors ::= or
         }
         entries.foreach(extract)
-        (leafs.distinct, ors.distinct) // A . A = A
+        // remove dupes by idempotency
+        // A . A = A
+        // A + A = A
+        (leafs.distinct, ors.distinct)
       }
-
-      //System.out.println(render(Map.empty))
-      //System.out.println(s"leafs=$leafs\nors=$ors")
 
       // expand so that OR is on the top, and eliminate
       def expand(factors: List[MinSum], ors: List[Or]): List[MinSum] = ors match {
-        case Nil => List(And(factors))
+        case Nil => factors match {
+          case List(factor) => List(factor)
+          case _ => List(And(factors))
+        }
         case head :: tail =>
           if (factors.intersect(head.entries).nonEmpty) {
+            // absorption
             // A . (A + B) = A
             expand(factors, tail)
           } else {
-            // A . (B + C) = (A . B) + (B . C)
+            // distribution
+            // A . (B + C) = (A . B) + (A . C)
             head.entries.flatMap { e =>
               expand(e :: factors, tail)
             }
           }
       }
-      Or(expand(leafs, ors)).minimise
 
-    case Or(List(entry)) => entry
-    case Or(entries) => Or(entries.map(_.minimise).distinct)
+      expand(leafs, ors) match {
+        case List(entry) => entry
+        case es => Or(es).minimise // inefficient, repeats a lot of work
+      }
+
+    case Or(entries) =>
+      // unnest by associativity
+      // A + (B + C) = (A + B) + C
+      // and dedupe by idempotentcy
+      // A + A = A
+      val tops = entries.map(_.minimise).flatMap {
+        case Or(es) => es
+        case e => List(e)
+      }.distinct // List[And | Leaf]
+
+      // reduce with absorption
+      // A + (A . B) = A
+      val reduced = tops.filter { e =>
+        !tops.exists { t => e != t && t.subsetOf(e) }
+      }
+
+      reduced match {
+        case List(entry) => entry
+        case es => Or(es)
+      }
+  }
+
+  // FIXME this is ugly as sin, clean it up!
+  // used to assist with absorption calculation, should be hidden because it
+  // might produce false negatives.
+  def subsetOf(that: MinSum): Boolean = {
+    val thisThings = {this match {
+      case e: Leaf => List(e)
+      case And(es) => es
+      case Or(List(e)) => List(e)
+      case _ => Nil
+    }}.toSet
+    val thatThings = {that match {
+      case e: Leaf => List(e)
+      case And(es) => es
+      case Or(List(e)) => List(e)
+      case _ => Nil
+    }}.toSet
+    thisThings.subsetOf(thatThings)
   }
 
 }
