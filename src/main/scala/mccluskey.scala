@@ -52,7 +52,7 @@ object Main {
     val logic = prime_sums(primes)
     // System.out.println(s"${logic.render(symbols)}")
     val minimal = logic.minimise
-    System.out.println(s"${minimal.render(symbols)}")
+    // System.out.println(s"${minimal.render(symbols)}")
     val expanded = minimal.expand
     System.out.println(s"${expanded.render(symbols)}")
   }
@@ -221,10 +221,13 @@ case class Term(
 sealed trait MinSum {
   import MinSum._
 
-  final def render(symbols: Map[String, String]): String = this match {
+  final def render(symbols: Map[String, String], top: Boolean = true): String = this match {
     case Leaf(term) => symbols.getOrElse(term.mask, term.mask)
-    case And(entries) => entries.map(_.render(symbols)).mkString(".")
-    case Or(entries) => entries.map(_.render(symbols)).mkString("(", " + ", ")")
+    case And(entries) => entries.map(_.render(symbols, false)).mkString(".")
+    case Or(entries) =>
+      val parts = entries.map(_.render(symbols, false))
+      if (top) parts.mkString(" + ")
+      else parts.mkString("(", " + ", ")")
   }
 
   // Reduces the boolean statement to a minimal form by applying boolean laws
