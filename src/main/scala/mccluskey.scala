@@ -214,6 +214,8 @@ case class Term(
     val indexes = labels.mkString("(", ", ", ")")
     s"$mask $indexes"
   }
+
+  override def toString = render
 }
 
 sealed trait MinSum {
@@ -312,25 +314,31 @@ sealed trait MinSum {
   // for human (qualitative) consumption of a call to minimise.
   def expand: MinSum = this match {
     case Or(entries) =>
-      // pick the candidate with the most counts and factor that out as an AND,
-      // then iterate (inefficient, but only called once) until there are no
-      // common factors.
+      // pick the candidate with the most common counts and factor
       val candidate = entries.flatMap(_.products).distinct.map { c =>
         c -> entries.count(_.products.contains(c))
       }.maxBy(_._2)
       if (candidate._2 < 2) return this
-      val c = candidate._1
+      val factor = candidate._1
 
-      val (common, uncommon) = entries.partitionMap {
-        case e@ And(es) if e != c & e.products.contains(c) =>
-          Left(And(es.filter(_ != c)))
+      val (common_, uncommon) = entries.partitionMap {
+        case e@ And(es) if e != factor & e.products.contains(factor) =>
+          Left(And(es.filter(_ != factor)))
         case e =>
           Right(e)
       }
 
-      // TODO unnest the And part for cleaner rendering
-      // TODO expand uncommon
-      Or(And(c :: Or(common).expand :: Nil) :: uncommon)
+      // in an ideal world we'd return Or(common ++ Or(uncommon).expand) but
+      // there are edge cases that need to be simplified or the output is messy.
+      val common = (factor, Or(common_).expand) match {
+        case (And(as), And(bs)) => And(as ++ bs)
+        case (a, b) => And(a :: b :: Nil)
+      }
+      if (uncommon.isEmpty) common
+      else Or(uncommon).expand match {
+        case Or(bs) => Or(common :: bs)
+        case bs => Or(common :: bs :: Nil)
+      }
 
     case _ => this
   }
