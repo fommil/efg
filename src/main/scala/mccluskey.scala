@@ -198,7 +198,7 @@ case class Term(
     Term(bits_, labels_)
   }
 
-  def mask: String =  {
+  val mask: String =  {
     val input = bits.map {
       case None => '-'
       case Some(true) => '1'
@@ -216,22 +216,60 @@ case class Term(
 sealed trait MinSum {
   import MinSum._
 
-  def render(symbols: Map[String, String]): String = this match {
+  final def render(symbols: Map[String, String]): String = this match {
     case Leaf(term) => symbols.getOrElse(term.mask, term.mask)
-    case And(entries) => entries.map(_.render(symbols)).mkString("")
+    case And(entries) => entries.map(_.render(symbols)).mkString(".")
     case Or(entries) => entries.map(_.render(symbols)).mkString("(", " + ", ")")
   }
 
-  // FIXME implement logical simplifications
+  // Reduces the statement to a canonical minimal form by applying
+  //
   // A . (A + D) = A
   // A . A = A
-  def minimise: MinSum = this match {
+  //
+  // Iteration may be needed beyond 2-level logic.
+  final def minimise: MinSum = this match {
     case _: Leaf => this
     case And(List(entry)) => entry
-    case And(entries) => And(entries.map(_.minimise).distinct)
+    case And(entries) =>
+      val (leafs, ors) = {
+        // unnest, by associativity
+        // A . (B . C) = A . B . C
+        // and extract all the top-level terms
+        var leafs: List[Leaf] = Nil
+        var ors: List[Or] = Nil
+        def extract(entry: MinSum): Unit = entry.minimise match {
+          case t: Leaf => leafs ::= t
+          case And(es) => es.foreach(extract)
+          case or: Or => ors ::= or
+        }
+        entries.foreach(extract)
+        (leafs.distinct, ors.distinct) // A . A = A
+      }
+
+      //System.out.println(render(Map.empty))
+      //System.out.println(s"leafs=$leafs\nors=$ors")
+
+      // expand so that OR is on the top, and eliminate
+      def expand(factors: List[MinSum], ors: List[Or]): List[MinSum] = ors match {
+        case Nil => List(And(factors))
+        case head :: tail =>
+          if (factors.intersect(head.entries).nonEmpty) {
+            // A . (A + B) = A
+            expand(factors, tail)
+          } else {
+            // A . (B + C) = (A . B) + (B . C)
+            head.entries.flatMap { e =>
+              expand(e :: factors, tail)
+            }
+          }
+      }
+      Or(expand(leafs, ors)).minimise
+
     case Or(List(entry)) => entry
     case Or(entries) => Or(entries.map(_.minimise).distinct)
   }
+
 }
 object MinSum {
   case class And(entries: List[MinSum]) extends MinSum
