@@ -44,15 +44,17 @@ object Main {
     // would appear in every cell where the term (row) contains the column's
     // label. But we don't need to construct the table explicitly.
 
-    System.out.println(s"${primes.map(_.render).mkString("  ", "\n  ", "\n")}")
+    // System.out.println(s"${primes.map(_.render).mkString("  ", "\n  ", "\n")}")
 
     val symbols = primes.map(_.mask).zip(gen_symbols).to(TreeMap)
-    System.out.println(symbols)
+    System.out.println(MinSum.render(symbols))
 
     val logic = prime_sums(primes)
-    System.out.println(s"${logic.render(symbols)}")
+    // System.out.println(s"${logic.render(symbols)}")
     val minimal = logic.minimise
     System.out.println(s"${minimal.render(symbols)}")
+    val expanded = minimal.expand
+    System.out.println(s"${expanded.render(symbols)}")
   }
 
   def gen_symbols: LazyList[String] = LazyList.from(1).map { i_ =>
@@ -289,7 +291,9 @@ sealed trait MinSum {
       // reduce with absorption
       // A + (A . B) = A
       val reduced = tops.filter { e =>
-        !tops.exists { t => e != t && t.subsetOf(e) }
+        !tops.exists { t =>
+          e != t && t.products.subsetOf(e.products)
+        }
       }
 
       reduced match {
@@ -298,23 +302,34 @@ sealed trait MinSum {
       }
   }
 
-  // FIXME this is ugly as sin, clean it up!
-  // used to assist with absorption calculation, should be hidden because it
-  // might produce false negatives.
-  def subsetOf(that: MinSum): Boolean = {
-    val thisThings = {this match {
-      case e: Leaf => List(e)
-      case And(es) => es
-      case Or(List(e)) => List(e)
-      case _ => Nil
-    }}.toSet
-    val thatThings = {that match {
-      case e: Leaf => List(e)
-      case And(es) => es
-      case Or(List(e)) => List(e)
-      case _ => Nil
-    }}.toSet
-    thisThings.subsetOf(thatThings)
+  // assumes this his been minimised, the AND equivalent products
+  private[MinSum] lazy val products: Set[MinSum] = this match {
+    case e: Leaf => Set(e)
+    case And(es) => es.toSet
+    case _ => Set.empty
+  }
+
+  // for human (qualitative) consumption of a call to minimise.
+  def expand: MinSum = this match {
+    case Or(entries) =>
+      // pick the candidate with the most counts and factor that out as an AND,
+      // then iterate (inefficient, but only called once) until there are no
+      // common factors.
+      val candidate = entries.flatMap(_.products).distinct.map { c =>
+        c -> entries.count(_.products.contains(c))
+      }.maxBy(_._2)._1
+
+      val (common, uncommon) = entries.partitionMap {
+        case e@ And(es) if e != candidate & e.products.contains(candidate) =>
+          Left(And(es diff List(candidate))) // TODO continue expanding
+        case e =>
+          Right(e)
+      }
+
+      // TODO expand uncommon
+      Or(And(candidate :: Or(common) :: Nil) :: uncommon)
+
+    case _ => this
   }
 
 }
@@ -322,6 +337,13 @@ object MinSum {
   case class And(entries: List[MinSum]) extends MinSum
   case class Or(entries: List[MinSum]) extends MinSum
   case class Leaf(term: Term) extends MinSum
+
+  def render(symbols: Map[String, String]): String = {
+    val pad = symbols.values.map(_.length).max
+    symbols.toList.sortBy(_._2).map {
+      case (bits, sym) => String.format("%-" + pad + "s", sym) + " = " + bits
+    }.mkString("\n")
+  }
 }
 
 // Local Variables:
