@@ -317,17 +317,19 @@ sealed trait MinSum {
       // common factors.
       val candidate = entries.flatMap(_.products).distinct.map { c =>
         c -> entries.count(_.products.contains(c))
-      }.maxBy(_._2)._1
+      }.maxBy(_._2)
+      if (candidate._2 < 2) return this
+      val c = candidate._1
 
       val (common, uncommon) = entries.partitionMap {
-        case e@ And(es) if e != candidate & e.products.contains(candidate) =>
-          Left(And(es diff List(candidate))) // TODO continue expanding
+        case e@ And(es) if e != c & e.products.contains(c) =>
+          Left(And(es.filter(_ != c)))
         case e =>
           Right(e)
       }
 
       // TODO expand uncommon
-      Or(And(candidate :: Or(common) :: Nil) :: uncommon)
+      Or(And(c :: Or(common).expand :: Nil) :: uncommon)
 
     case _ => this
   }
