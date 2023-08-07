@@ -46,20 +46,22 @@ object Main {
     val input = Files.readString(file.toPath, UTF_8)
 
     val canon = canonical_representation(input)
-    val primes = prime_implicants(canon)
+    val outputs = canon.head.outputs.values.length
 
-    // the "prime implicant table" would have columns of distinct labels; and
-    // rows being the bitmask of each term (or a unique shorthand symbol). X
-    // would appear in every cell where the term (row) contains the column's
-    // label. But we don't need to construct the table explicitly.
+    val mins = (0 until outputs).map { i =>
+      val primes = prime_implicants(canon, i)
+      val minimal = prime_sums(primes).minimise
+      (minimal, minimal.expand)
+    }
 
-    // System.out.println(s"${primes.map(_.render).mkString("  ", "\n  ", "\n")}")
-
-    val minimal = prime_sums(primes).minimise.expand
-
-    val symbols = minimal.gates.distinct.zip(gen_symbols).toMap
+    // shared across all the outputs
+    val symbols = mins.flatMap(_._2.gates).distinct.zip(gen_symbols).toMap
     System.out.println(MinSum.render(symbols))
-    System.out.println(s"${minimal.render(symbols)}")
+
+    mins.foreach {
+      case (_, human) =>
+        System.out.println(s"${human.render(symbols)}")
+    }
   }
 
   def gen_symbols: LazyList[String] = LazyList.from(1).map { i_ =>
@@ -97,9 +99,7 @@ object Main {
 
     require(rows.map(_._1.values.length).distinct.length == 1, "inputs must have the same length")
     require(rows.map(_._2.values.length).distinct.length == 1, "outputs must have the same length")
-    require(rows.distinct.length == rows.length, "duplicates not allowed")
-
-    require(rows.forall(_._2.values.length == 1), "only one output allowed") // TODO support multiple outputs
+    require(rows.map(_._1).distinct.length == rows.map(_._1).length, "inputs must be unique")
 
     val terms_ = rows.zipWithIndex.map {
       case ((input, output, label_), i) =>
@@ -125,8 +125,6 @@ object Main {
         }
     }.reverse
 
-    // System.out.println(terms.mkString("\n"))
-
     require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
     terms
   }
@@ -135,10 +133,9 @@ object Main {
   // note that p-terms and d-terms (don't cares) are treated the same to get to
   // the most minimal representation, but then d-terms are filtered out since
   // they are not needed in minimisation.
-  def prime_implicants(terms: List[Term]): List[Term] = {
-    // TODO multiple output columns
-    val pterms = terms.filter(_.outputs.values.forall(_ == Some(true)))
-    val dterms = terms.filter(_.outputs.values.forall(_ == None))
+  def prime_implicants(terms: List[Term], index: Int): List[Term] = {
+    val pterms = terms.filter(_.outputs.values(index) == Some(true))
+    val dterms = terms.filter(_.outputs.values(index) == None)
 
     // performs a single sweep of the first list of terms against themselves and
     // the second list, returning newly merged terms followed by those that were
@@ -257,6 +254,8 @@ case class Term(
       case (Some(a), Some(b)) if a == b => Some(a)
       case _ => None
     }
+    // this is wasted work, maybe we shouldn't be tracking outputs after the
+    // canonical form has been constructed.
     val output_ = outputs.values.zip(that.outputs.values).map {
       case (Some(true), _) => Some(true)
       case (_, Some(true)) => Some(true)
