@@ -8,4 +8,4 @@
 1 0 1 | 1
 1 1 0 | 1
 # 1 1 1 | 0
-x x x | x # smoke test
+x x x | 0 # smoke test
