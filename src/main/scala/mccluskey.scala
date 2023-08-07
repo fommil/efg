@@ -15,9 +15,6 @@
 // The program will halt if a generated symbol clashes with a manually provided
 // one.
 //
-// TODO 'x' in input (careful about precedence, requires state)
-// TODO 'd-terms' as described in section 1 of the paper (i.e. 'x' in output)
-//
 // Outputs a human readable representation of the minimal sum of prime
 // implicants. The interpretation of the output is such that each + (OR)
 // represents a designer's choice that, when a decision has been made, the logic
@@ -35,10 +32,10 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.ArraySeq
+import scala.collection.immutable.{ ArraySeq, TreeSet }
 
 object Main {
-  private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01]+)([|][ 01]+)?$".r
+  private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01]+)([|][ 01xX]+)?$".r
 
   def main(args: Array[String]): Unit = {
     require(args.length == 1, "one input file must be provided")
@@ -76,22 +73,21 @@ object Main {
 
   // construct the canonical representation from the user's .truth table
   def canonical_representation(s: String): List[Term] = {
-    def parseBits(s: String): Seq[Boolean] = s.replace(" ", "").map {
-      case '1' => true
-      case '0' => false
-    }
+    def parseBits(s: String): ArraySeq[Option[Boolean]] = s.replace(" ", "").map {
+      case '1' => Some(true)
+      case '0' => Some(false)
+      case 'x' | 'X' => None
+    }.to(ArraySeq)
 
     val rows = s
       .split("\n").toList
       .flatMap { line =>
-        val row = line.split("#")(0)
+        val row = line.split("#").applyOrElse(0, (_: Int) => "")
         if (row.trim.isEmpty) None
         else row match {
-          case RowPattern(label, input, null) => Some((parseBits(input), List(true), Option(label)))
           case RowPattern(label, input, output) =>
-            val out = parseBits(output.tail)
-            if (out.isEmpty || out.forall(!_)) None
-            else Some((parseBits(input), out, Option(label)))
+            val out = if (output eq null) ArraySeq(Some(true)) else parseBits(output.tail)
+            Some((parseBits(input), out, Option(label)))
         }
       }
 
@@ -99,12 +95,13 @@ object Main {
     require(rows.map(_._2.length).distinct.length == 1, "outputs must have the same length")
     require(rows.distinct.length == rows.length, "duplicates not allowed")
 
+    require(rows.forall(_._1.forall(_.isDefined)), "all inputs must be specified") // TODO don't cares
     require(rows.forall(_._2.length == 1), "only one output allowed") // TODO support multiple outputs
 
     val terms = rows.zipWithIndex.map {
-      case ((input, _, label_), i) =>
+      case ((input, output, label_), i) =>
         val label = label_.map(_.tail).getOrElse(i.toString)
-        Term(Bits(input.map(Some(_)).to(ArraySeq)), List(label))
+        Term(Bits(input), Bits(output), TreeSet(label))
     }
     require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
 
@@ -112,7 +109,14 @@ object Main {
   }
 
   // calculates the unique prime implicants from the canonical representation
+  // note that p-terms and d-terms (don't cares) are treated the same to get to
+  // the most minimal representation, but then d-terms are filtered out since
+  // they are not needed in minimisation.
   def prime_implicants(terms: List[Term]): List[Term] = {
+    // TODO multiple output columns
+    val pterms = terms.filter(_.outputs.values.forall(_ == Some(true)))
+    val dterms = terms.filter(_.outputs.values.forall(_ == None))
+
     // performs a single sweep of the first list of terms against themselves and
     // the second list, returning newly merged terms followed by those that were
     // not affected by the merging.
@@ -137,7 +141,7 @@ object Main {
       // we can arrive at merged results through multiple paths, but always at the
       // same step of the iteration, so we must distinct by the _.bits
       val eliminated = mergeable.flatMap { case (a, b) => List(a, b) }.distinct
-      val merged = mergeable.map { case (a, b) => a merge b }.distinctBy(_.bits)
+      val merged = mergeable.map { case (a, b) => a merge b }.distinctBy(_.inputs)
 
       // the diff here should be using .bits as the comparison, but since new
       // terms only enter from merging it is not strictly needed. Distinct here is
@@ -146,20 +150,30 @@ object Main {
       (merged, unchanged)
     }
 
-    var surface = (terms, List.empty[Term])
+    var surface = (pterms ++ dterms, List.empty[Term])
     while (surface._1.nonEmpty) {
       surface = step(surface._1, surface._2)
     }
-    surface._1 ++ surface._2
+    val repr = surface._1 ++ surface._2
+
+    val dontcares = dterms.flatMap(_.labels).to(TreeSet)
+    repr.flatMap { t =>
+      if (!dontcares.subsetOf(t.labels)) Some(t)
+      else {
+        val t_ = t.copy(labels = t.labels diff dontcares)
+        if (t_.labels.isEmpty) None
+        else Some(t_)
+      }
+    }
   }
 
   // this is the novel thing that McCluskey did in his paper that filled in gaps
   // in Quine52 and those that came before him (McColl, Blake, etc).
   def prime_sums(primes: List[Term]): MinSum = {
-    val labels = primes.flatMap(_.labels).distinct.sorted
+    val labels = primes.flatMap(_.labels).to(TreeSet).toList
 
     val logic = MinSum.And(labels.map { label =>
-      val rows = primes.filter(_ contains label).map(t => MinSum.Leaf(t.bits))
+      val rows = primes.filter(_.labels contains label).map(t => MinSum.Leaf(t.inputs))
       assert(rows.nonEmpty)
       MinSum.Or(rows)
     })
@@ -196,36 +210,42 @@ case class Bits(
 
 // a potential prime implicant, derived from one or more p-terms
 case class Term(
-  bits: Bits,
+  inputs: Bits,
+  outputs: Bits,
   // the row labels included in this term
-  labels: List[String]
+  labels: TreeSet[String]
 ) {
   require(labels.nonEmpty)
 
-  // is it worth optimising with a Set[String] lookup?
-  def contains(label: String): Boolean = labels.contains(label)
-
   def canMerge(that: Term): Boolean = {
-    val alts = bits.values.zip(that.bits.values).filter {
+    val alts = inputs.values.zip(that.inputs.values).filter {
       // case (Some(a), Some(b)) => a != b
       case (oa, ob) => oa != ob
     }
+    // could compare outputs here but we should only ever be doing this
+    // operation on the canonical representation where everything is compatible
+    // at that level.
     alts.lengthCompare(1) == 0
   }
 
   // does not check for compatibility, always guard with canMerge
   def merge(that: Term): Term = {
-    val bits_ = bits.values.zip(that.bits.values).map {
+    val input_ = inputs.values.zip(that.inputs.values).map {
       case (Some(a), Some(b)) if a == b => Some(a)
       case _ => None
     }
+    val output_ = outputs.values.zip(that.outputs.values).map {
+      case (Some(true), _) => Some(true)
+      case (_, Some(true)) => Some(true)
+      case _ => None
+    }
     val labels_ = labels ++ that.labels
-    Term(Bits(bits_), labels_)
+    Term(Bits(input_), Bits(output_), labels_)
   }
 
   def render: String = {
     val indexes = labels.mkString("(", ", ", ")")
-    s"${bits.render} $indexes"
+    s"${inputs.render} $indexes"
   }
 
   override def toString = render
