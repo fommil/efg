@@ -25,7 +25,9 @@
 // optimisation from sharing of substructure (including across output channels,
 // and the use of inverted bits).
 //
-// TODO machine readable output for further analysis.
+// TODO automated tests
+// TODO machine readable output for further analysis (including table recreation)
+// TODO reverse engineered examples from the paper based on hand-provided mins
 package mccluskey
 
 import java.io.File
@@ -35,7 +37,7 @@ import java.nio.file.Files
 import scala.collection.immutable.{ ArraySeq, TreeSet }
 
 object Main {
-  private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01]+)([|][ 01xX]+)?$".r
+  private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01xX]+)([|][ 01xX]+)?$".r
 
   def main(args: Array[String]): Unit = {
     require(args.length == 1, "one input file must be provided")
@@ -86,25 +88,46 @@ object Main {
         if (row.trim.isEmpty) None
         else row match {
           case RowPattern(label, input, output) =>
+            // successful parseBits are guaranteed non-empty by the regexp
+            val in = parseBits(input)
             val out = if (output eq null) ArraySeq(Some(true)) else parseBits(output.tail)
-            Some((parseBits(input), out, Option(label)))
+            Some((Bits(in), Bits(out), Option(label).map(_.tail)))
         }
       }
 
-    require(rows.map(_._1.length).distinct.length == 1, "inputs must have the same length")
-    require(rows.map(_._2.length).distinct.length == 1, "outputs must have the same length")
+    require(rows.map(_._1.values.length).distinct.length == 1, "inputs must have the same length")
+    require(rows.map(_._2.values.length).distinct.length == 1, "outputs must have the same length")
     require(rows.distinct.length == rows.length, "duplicates not allowed")
 
-    require(rows.forall(_._1.forall(_.isDefined)), "all inputs must be specified") // TODO don't cares
-    require(rows.forall(_._2.length == 1), "only one output allowed") // TODO support multiple outputs
+    require(rows.forall(_._2.values.length == 1), "only one output allowed") // TODO support multiple outputs
 
-    val terms = rows.zipWithIndex.map {
+    val terms_ = rows.zipWithIndex.map {
       case ((input, output, label_), i) =>
-        val label = label_.map(_.tail).getOrElse(i.toString)
-        Term(Bits(input), Bits(output), TreeSet(label))
+        val label = label_.getOrElse(i.toString)
+        Term(input, output, TreeSet(label))
     }
-    require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
 
+    // expand out input dontcares into explicit rows
+    val terms = terms_.foldLeft(List.empty[Term]) {
+      case (seen, row) =>
+        if (row.inputs.values.forall(_.isDefined)) row :: seen
+        else {
+          val excluded = seen.map(_.inputs).toSet // could be optimised to subsets
+          val expanded = row.inputs.values.foldLeft(List(ArraySeq.empty[Boolean])) {
+            case (acc, Some(t)) => acc.map(_ :+ t)
+            case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
+          }.map(bools => Bits(bools.map(Option(_))))
+          val label = row.labels.head
+          val vrows = expanded.toSet.diff(excluded).toList.zipWithIndex.map {
+            case (vrow, i) => Term(vrow, row.outputs, TreeSet(s"${label}.${i}"))
+          }
+          vrows.reverse ::: seen
+        }
+    }.reverse
+
+    // System.out.println(terms.mkString("\n"))
+
+    require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
     terms
   }
 
@@ -208,7 +231,7 @@ case class Bits(
   override def toString = render
 }
 
-// a potential prime implicant, derived from one or more p-terms
+// a potential prime implicant, derived from one or more p-terms or d-terms
 case class Term(
   inputs: Bits,
   outputs: Bits,
