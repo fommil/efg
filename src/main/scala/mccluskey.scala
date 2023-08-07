@@ -16,9 +16,19 @@
 // one.
 //
 // TODO 'x' in input (careful about precedence, requires state)
+// TODO 'd-terms' as described in section 1 of the paper (i.e. 'x' in output)
 //
 // Outputs a human readable representation of the minimal sum of prime
-// implicants and writes a machine readable version to disk.
+// implicants. The interpretation of the output is such that each + (OR)
+// represents a designer's choice that, when a decision has been made, the logic
+// gates to be used are an OR over each of the parts. For example 'A . C . F (D
+// + E)' means that either ACFD or ACFE are valid circuits. When implementing
+// ACFD we should implement 'A OR C OR F OR D'. Of course, each gate has
+// different numbers of bits in its comparison and there may be further circuit
+// optimisation from sharing of substructure (including across output channels,
+// and the use of inverted bits).
+//
+// TODO machine readable output for further analysis.
 package mccluskey
 
 import java.io.File
@@ -48,9 +58,6 @@ object Main {
 
     val minimal = prime_sums(primes).minimise.expand
 
-    // FIXME I'm pretty sure the output is garbage...
-    // tableVIII says that --01 AND -11- need to be true in one of the terms,
-    // which is impossible.
     val symbols = minimal.gates.distinct.zip(gen_symbols).toMap
     System.out.println(MinSum.render(symbols))
     System.out.println(s"${minimal.render(symbols)}")
