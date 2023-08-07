@@ -25,7 +25,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, TreeMap }
+import scala.collection.immutable.ArraySeq
 
 object Main {
   private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01]+)([|][ 01]+)?$".r
@@ -46,15 +46,14 @@ object Main {
 
     // System.out.println(s"${primes.map(_.render).mkString("  ", "\n  ", "\n")}")
 
-    val symbols = primes.map(_.mask).zip(gen_symbols).to(TreeMap)
-    System.out.println(MinSum.render(symbols))
+    val minimal = prime_sums(primes).minimise.expand
 
-    val logic = prime_sums(primes)
-    // System.out.println(s"${logic.render(symbols)}")
-    val minimal = logic.minimise
-    // System.out.println(s"${minimal.render(symbols)}")
-    val expanded = minimal.expand
-    System.out.println(s"${expanded.render(symbols)}")
+    // FIXME I'm pretty sure the output is garbage...
+    // tableVIII says that --01 AND -11- need to be true in one of the terms,
+    // which is impossible.
+    val symbols = minimal.gates.distinct.zip(gen_symbols).toMap
+    System.out.println(MinSum.render(symbols))
+    System.out.println(s"${minimal.render(symbols)}")
   }
 
   def gen_symbols: LazyList[String] = LazyList.from(1).map { i_ =>
@@ -98,7 +97,7 @@ object Main {
     val terms = rows.zipWithIndex.map {
       case ((input, _, label_), i) =>
         val label = label_.map(_.tail).getOrElse(i.toString)
-        Term(input.map(Some(_)).to(ArraySeq), List(label))
+        Term(Bits(input.map(Some(_)).to(ArraySeq)), List(label))
     }
     require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
 
@@ -153,7 +152,7 @@ object Main {
     val labels = primes.flatMap(_.labels).distinct.sorted
 
     val logic = MinSum.And(labels.map { label =>
-      val rows = primes.filter(_ contains label).map(MinSum.Leaf(_))
+      val rows = primes.filter(_ contains label).map(t => MinSum.Leaf(t.bits))
       assert(rows.nonEmpty)
       MinSum.Or(rows)
     })
@@ -163,28 +162,44 @@ object Main {
 
 }
 
+// input bits, None is McCluskey's hyphen.
+//
+// This represents a logic gate of N bits where N is equal to the number of Some
+// entries. e.g. -1-0 is a 2 input gate where index 1 is true and index 3 is
+// false. These can be decomposed into smaller fixed-input gates and shared
+// between each other, which is a circuit design optimisation step that is not
+// considered by McCluskey.
+case class Bits(
+  // Array doesn't have a sensible equals, so use ArraySeq
+  values: ArraySeq[Option[Boolean]]
+) {
+  require(values.nonEmpty)
+
+  def render: String =  {
+    val input = values.map {
+      case None => '-'
+      case Some(true) => '1'
+      case Some(false) => '0'
+    }
+    input.mkString
+  }
+
+  override def toString = render
+}
+
 // a potential prime implicant, derived from one or more p-terms
 case class Term(
-  // input bits, None is McCluskey's hyphen
-  bits: ArraySeq[Option[Boolean]],
+  bits: Bits,
   // the row labels included in this term
   labels: List[String]
 ) {
-  require(bits.nonEmpty)
   require(labels.nonEmpty)
 
   // is it worth optimising with a Set[String] lookup?
   def contains(label: String): Boolean = labels.contains(label)
 
-  // // if a sequence of bits matches this, then they also match that.
-  // def subsetOf(that: Term): Boolean =
-  //   bits.zip(that.bits).forall {
-  //     case (Some(_), None) => true
-  //     case (oa, ob) => oa == ob
-  //   }
-
   def canMerge(that: Term): Boolean = {
-    val alts = bits.zip(that.bits).filter {
+    val alts = bits.values.zip(that.bits.values).filter {
       // case (Some(a), Some(b)) => a != b
       case (oa, ob) => oa != ob
     }
@@ -193,26 +208,17 @@ case class Term(
 
   // does not check for compatibility, always guard with canMerge
   def merge(that: Term): Term = {
-    val bits_ = bits.zip(that.bits).map {
+    val bits_ = bits.values.zip(that.bits.values).map {
       case (Some(a), Some(b)) if a == b => Some(a)
       case _ => None
     }
     val labels_ = labels ++ that.labels
-    Term(bits_, labels_)
-  }
-
-  val mask: String =  {
-    val input = bits.map {
-      case None => '-'
-      case Some(true) => '1'
-      case Some(false) => '0'
-    }
-    input.mkString
+    Term(Bits(bits_), labels_)
   }
 
   def render: String = {
     val indexes = labels.mkString("(", ", ", ")")
-    s"$mask $indexes"
+    s"${bits.render} $indexes"
   }
 
   override def toString = render
@@ -221,8 +227,14 @@ case class Term(
 sealed trait MinSum {
   import MinSum._
 
-  final def render(symbols: Map[String, String], top: Boolean = true): String = this match {
-    case Leaf(term) => symbols.getOrElse(term.mask, term.mask)
+  final def gates: List[Bits] = this match {
+    case Leaf(bits) => List(bits)
+    case And(as) => as.flatMap(_.gates)
+    case Or(os) => os.flatMap(_.gates)
+  }
+
+  final def render(symbols: Map[Bits, String], top: Boolean = true): String = this match {
+    case Leaf(bits) => symbols.getOrElse(bits, bits.render)
     case And(entries) => entries.map(_.render(symbols, false)).mkString(".")
     case Or(entries) =>
       val parts = entries.map(_.render(symbols, false))
@@ -350,12 +362,12 @@ sealed trait MinSum {
 object MinSum {
   case class And(entries: List[MinSum]) extends MinSum
   case class Or(entries: List[MinSum]) extends MinSum
-  case class Leaf(term: Term) extends MinSum
+  case class Leaf(bits: Bits) extends MinSum
 
-  def render(symbols: Map[String, String]): String = {
+  def render(symbols: Map[Bits, String]): String = {
     val pad = symbols.values.map(_.length).max
     symbols.toList.sortBy(_._2).map {
-      case (bits, sym) => String.format("%-" + pad + "s", sym) + " = " + bits
+      case (bits, sym) => String.format("%-" + pad + "s", sym) + " = " + bits.render
     }.mkString("\n")
   }
 }
