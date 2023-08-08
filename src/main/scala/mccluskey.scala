@@ -26,7 +26,7 @@
 // sharing of substructure (including across output channels, and the use of
 // inverted bits).
 //
-// TODO reverse engineered examples from the paper based on hand-provided mins
+// TODO investigate why we differ from McCluskey's paper for TableXII
 package mccluskey
 
 import java.io.File

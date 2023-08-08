@@ -1,0 +1,35 @@
+# truth table reconstructed from TableXII of McCluskey
+# from the minimal sum of products.
+#
+# Interestingly, we find A.D.F as a minimal sum whereas
+# McCluskey only found minimal sums with 3 components,
+# having different basis than here...
+#
+# A = 1--0
+# B = 0-01
+# C = -000
+# D = -101
+# E = 110-
+# F = 000-
+#
+# A.(B.(C.(D + E) + E.F) + D.F)
+#
+# c.f. McCluskey
+#
+# A = 1--0
+# B = 00-0
+# C = 000-
+# D = 11-0
+# E = 110-
+# F = -101
+#
+# A . C . F . (D + E)
+#
+0 0 0 0
+0 0 0 1
+0 1 0 1
+1 0 0 0
+1 0 1 0
+1 1 0 0
+1 1 0 1
+1 1 1 0
