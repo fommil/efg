@@ -296,12 +296,8 @@ case class Term(
 
   def canMerge(that: Term): Boolean = {
     val alts = inputs.values.zip(that.inputs.values).filter {
-      // case (Some(a), Some(b)) => a != b
       case (oa, ob) => oa != ob
     }
-    // could compare outputs here but we should only ever be doing this
-    // operation on the canonical representation where everything is compatible
-    // at that level.
     alts.lengthCompare(1) == 0
   }
 
