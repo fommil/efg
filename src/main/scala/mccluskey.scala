@@ -52,17 +52,17 @@ object Main {
     val input = Files.readString(in.toPath, UTF_8)
 
     val canon = canonical_representation(input)
-    val outputs = canon.head.outputs.values.length
+    val output_length = canon.head._2.values.length
 
-    val mins = (0 until outputs).map { i =>
+    val mins = (0 until output_length).map { i =>
       val primes = prime_implicants(canon, i)
       val minimal = prime_sums(primes).minimise
       (minimal, minimal.expand)
     }
 
     // shared across all the outputs
-    val symbols = mins.flatMap(_._2.gates).distinct.zip(gen_symbols).toMap
-    System.out.println(MinSum.render(symbols))
+    val symbols = mins.flatMap(_._2.gates).distinct.zip(BitsSym.alpha).toMap
+    System.out.println(BitsSym.render(symbols))
     System.out.println("")
 
     // is there an opportunity to split symbols into shared symbols between
@@ -81,26 +81,17 @@ object Main {
       val lookup = symbols.toList.map(_.swap).toMap
       val outputs = mins.toList
         .map { case (machine, _) => machine.asMinSums.map(_.map(symbols(_))) }
-      val machine = MachineReadable(lookup, outputs)
-      val json = jzon.Encoder[MachineReadable].toJson(machine, Some(0))
+      val machine = MinSumsOfProducts(lookup, outputs)
+      val json = jzon.Encoder[MinSumsOfProducts].toJson(machine, Some(0))
 
       Files.writeString(out.toPath, json, UTF_8)
     }
   }
 
-  def gen_symbols: LazyList[String] = LazyList.from(1).map { i_ =>
-    val buf = new java.lang.StringBuffer
-    var i = i_
-    while (i > 0) {
-      val rem = (i - 1) % 26
-      buf.append(('A' + rem).toChar)
-      i = (i - rem) / 26
-    }
-    buf.reverse.toString
-  }
-
-  // construct the canonical representation from the user's .truth table
-  def canonical_representation(s: String): List[Term] = {
+  // construct the canonical representation (including d-terms) from the user's
+  // .truth table along with each row's output Bits. If the user provided rows
+  // with zero output they will be included here.
+  def canonical_representation(s: String): List[(Term, Bits)] = {
     def parseBits(s: String): ArraySeq[Option[Boolean]] = s.replace(" ", "").map {
       case '1' => Some(true)
       case '0' => Some(false)
@@ -128,28 +119,28 @@ object Main {
     val terms_ = rows.zipWithIndex.map {
       case ((input, output, label_), i) =>
         val label = label_.getOrElse(i.toString)
-        Term(input, output, TreeSet(label))
+        Term(input, TreeSet(label)) -> output
     }
 
     // expand out input dontcares into explicit rows
-    val terms = terms_.foldLeft(List.empty[Term]) {
-      case (seen, row) =>
-        if (row.inputs.values.forall(_.isDefined)) row :: seen
+    val terms = terms_.foldLeft(List.empty[(Term, Bits)]) {
+      case (seen, row@(term, outputs)) =>
+        if (term.inputs.values.forall(_.isDefined)) row :: seen
         else {
-          val excluded = seen.map(_.inputs).toSet // could be optimised to subsets
-          val expanded = row.inputs.values.foldLeft(List(ArraySeq.empty[Boolean])) {
+          val excluded = seen.map(_._1.inputs).toSet // could be optimised to subsets
+          val expanded = term.inputs.values.foldLeft(List(ArraySeq.empty[Boolean])) {
             case (acc, Some(t)) => acc.map(_ :+ t)
             case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
           }.map(bools => Bits(bools.map(Option(_))))
-          val label = row.labels.head
+          val label = term.labels.head
           val vrows = expanded.toSet.diff(excluded).toList.zipWithIndex.map {
-            case (vrow, i) => Term(vrow, row.outputs, TreeSet(s"${label}.${i}"))
+            case (vrow, i) => Term(vrow, TreeSet(s"${label}.${i}")) -> outputs
           }
           vrows.reverse ::: seen
         }
     }.reverse
 
-    require(terms.flatMap(_.labels).distinct.length == terms.length, "labels must be unique")
+    require(terms.flatMap(_._1.labels).distinct.length == terms.length, "labels must be unique")
     terms
   }
 
@@ -157,9 +148,9 @@ object Main {
   // note that p-terms and d-terms (don't cares) are treated the same to get to
   // the most minimal representation, but then d-terms are filtered out since
   // they are not needed in minimisation.
-  def prime_implicants(terms: List[Term], index: Int): List[Term] = {
-    val pterms = terms.filter(_.outputs.values(index) == Some(true))
-    val dterms = terms.filter(_.outputs.values(index) == None)
+  def prime_implicants(terms_outputs: List[(Term, Bits)], index: Int): List[Term] = {
+    val pterms = terms_outputs.filter(_._2.values(index) == Some(true)).map(_._1)
+    val dterms = terms_outputs.filter(_._2.values(index) == None).map(_._1)
 
     // performs a single sweep of the first list of terms against themselves and
     // the second list, returning newly merged terms followed by those that were
@@ -234,12 +225,10 @@ object Main {
 // false. These can be decomposed into smaller fixed-input gates and shared
 // between each other, which is a circuit design optimisation step that is not
 // considered by McCluskey.
-case class Bits(
+final class Bits private(
   // Array doesn't have a sensible equals, so use ArraySeq
-  values: ArraySeq[Option[Boolean]]
-) {
-  require(values.nonEmpty)
-
+  val values: ArraySeq[Option[Boolean]]
+) extends AnyVal {
   def render: String =  {
     val input = values.map {
       case None => '-'
@@ -252,14 +241,46 @@ case class Bits(
   override def toString = render
 }
 object Bits {
+  def apply(values: ArraySeq[Option[Boolean]]) = {
+    require(values.nonEmpty)
+    new Bits(values)
+  }
   implicit val encoder: jzon.Encoder[Bits] = jzon.Encoder[String].contramap(_.render)
+}
+
+// a symbolic (usually alphanumeric) representation of Bits that is managed
+// through a scoped lookup table.
+final class BitsSym private (val value: String) extends AnyVal {
+  override def toString = value
+}
+object BitsSym {
+  def apply(value: String): BitsSym = new BitsSym(value)
+
+  implicit val encoder: jzon.Encoder[BitsSym] = jzon.Encoder[String].contramap(_.value)
+  implicit val fencoder: jzon.FieldEncoder[BitsSym] = jzon.FieldEncoder.string.contramap(_.value)
+
+  def alpha: LazyList[BitsSym] = LazyList.from(1).map { i_ =>
+    val buf = new java.lang.StringBuffer
+    var i = i_
+    while (i > 0) {
+      val rem = (i - 1) % 26
+      buf.append(('A' + rem).toChar)
+      i = (i - rem) / 26
+    }
+    BitsSym(buf.reverse.toString)
+  }
+
+  def render(symbols: Map[Bits, BitsSym]): String = {
+    val pad = symbols.values.map(_.value.length).max
+    symbols.toList.sortBy(_._2.value).map {
+      case (bits, sym) => String.format("%-" + pad + "s", sym.value) + " = " + bits.render
+    }.mkString("\n")
+  }
 }
 
 // a potential prime implicant, derived from one or more p-terms or d-terms
 case class Term(
   inputs: Bits,
-  outputs: Bits, // TODO variant without the output
-  // the row labels included in this term
   labels: TreeSet[String]
 ) {
   require(labels.nonEmpty)
@@ -281,15 +302,8 @@ case class Term(
       case (Some(a), Some(b)) if a == b => Some(a)
       case _ => None
     }
-    // this is wasted work, maybe we shouldn't be tracking outputs after the
-    // canonical form has been constructed.
-    val output_ = outputs.values.zip(that.outputs.values).map {
-      case (Some(true), _) => Some(true)
-      case (_, Some(true)) => Some(true)
-      case _ => None
-    }
     val labels_ = labels ++ that.labels
-    Term(Bits(input_), Bits(output_), labels_)
+    Term(Bits(input_), labels_)
   }
 
   def render: String = {
@@ -309,8 +323,8 @@ sealed trait MinSum {
     case Or(os) => os.flatMap(_.gates)
   }
 
-  final def render(symbols: Map[Bits, String], top: Boolean = true): String = this match {
-    case Leaf(bits) => symbols.getOrElse(bits, bits.render)
+  final def render(symbols: Map[Bits, BitsSym], top: Boolean = true): String = this match {
+    case Leaf(bits) => symbols.get(bits).map(_.toString).getOrElse(bits.render)
     case And(entries) => entries.map(_.render(symbols, false)).mkString(".")
     case Or(entries) =>
       val parts = entries.map(_.render(symbols, false))
@@ -454,22 +468,15 @@ object MinSum {
   case class And(entries: List[MinSum]) extends MinSum
   case class Or(entries: List[MinSum]) extends MinSum
   case class Leaf(bits: Bits) extends MinSum
-
-  def render(symbols: Map[Bits, String]): String = {
-    val pad = symbols.values.map(_.length).max
-    symbols.toList.sortBy(_._2).map {
-      case (bits, sym) => String.format("%-" + pad + "s", sym) + " = " + bits.render
-    }.mkString("\n")
-  }
 }
 
 // the nested lists are output channel, sums, products.
-case class MachineReadable(
-  symbols: Map[String, Bits],
-  outputs: List[List[List[String]]]
+case class MinSumsOfProducts(
+  symbols: Map[BitsSym, Bits],
+  sums_of_products: List[List[List[BitsSym]]]
 )
-object MachineReadable {
-  implicit val encoder: jzon.Encoder[MachineReadable] = jzon.Encoder.derived
+object MinSumsOfProducts {
+  implicit val encoder: jzon.Encoder[MinSumsOfProducts] = jzon.Encoder.derived
 }
 
 // Local Variables:
