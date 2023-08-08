@@ -25,7 +25,6 @@
 // optimisation from sharing of substructure (including across output channels,
 // and the use of inverted bits).
 //
-// TODO automated tests
 // TODO machine readable output for further analysis (including table recreation)
 // TODO reverse engineered examples from the paper based on hand-provided mins
 package mccluskey
@@ -57,7 +56,12 @@ object Main {
     // shared across all the outputs
     val symbols = mins.flatMap(_._2.gates).distinct.zip(gen_symbols).toMap
     System.out.println(MinSum.render(symbols))
+    System.out.println("")
 
+    // is there an opportunity to split symbols into shared symbols between
+    // output channels? e.g. C=--0-, D=-10- could be split into D = C . E where
+    // E=-1-- and see the clear reuse of C. i.e. if any gate is a subset of
+    // another gate then split it into two parts and iterate.
     mins.foreach {
       case (_, human) =>
         System.out.println(s"${human.render(symbols)}")
