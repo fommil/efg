@@ -127,7 +127,7 @@ object Main {
       case (seen, row@(term, outputs)) =>
         if (term.inputs.values.forall(_.isDefined)) row :: seen
         else {
-          val excluded = seen.map(_._1.inputs).toSet // could be optimised to subsets
+          val excluded = seen.map(_._1.inputs).toSet.filter(term.inputs.isSubsetOf(_))
           val expanded = term.inputs.values.foldLeft(List(ArraySeq.empty[Boolean])) {
             case (acc, Some(t)) => acc.map(_ :+ t)
             case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
@@ -237,6 +237,15 @@ final class Bits private(
     }
     input.mkString
   }
+
+  def isSubsetOf(that: Bits): Boolean =
+    (this.values.length == that.values.length) && {
+      values.zip(that.values).forall {
+        case (Some(a), Some(b)) => a == b
+        case (_, None) => true
+        case _ => false
+      }
+    }
 
   override def toString = render
 }
