@@ -92,12 +92,6 @@ object Main {
   // .truth table along with each row's output Bits. If the user provided rows
   // with zero output they will be included here.
   def canonical_representation(s: String): List[(Term, Bits)] = {
-    def parseBits(s: String): ArraySeq[Option[Boolean]] = s.replace(" ", "").map {
-      case '1' => Some(true)
-      case '0' => Some(false)
-      case 'x' | 'X' => None
-    }.to(ArraySeq)
-
     val rows = s
       .split("\n").toList
       .flatMap { line =>
@@ -106,9 +100,15 @@ object Main {
         else row match {
           case RowPattern(label, input, output) =>
             // successful parseBits are guaranteed non-empty by the regexp
-            val in = parseBits(input)
-            val out = if (output eq null) ArraySeq(Some(true)) else parseBits(output.tail)
-            Some((Bits(in), Bits(out), Option(label).map(_.tail)))
+            val in = Bits.parse(input).toOption.get
+            val out: Bits = {
+              if (output eq null) Bits.ONE
+              else Bits.parse(output.tail) match {
+                case Right(bits) => bits
+                case Left(err) => throw new IllegalArgumentException(err)
+              }
+            }
+            Some((in, out, Option(label).map(_.tail)))
         }
       }
 
@@ -250,11 +250,25 @@ final class Bits private(
   override def toString = render
 }
 object Bits {
+  val ONE = Bits(ArraySeq(Some(true)))
+
   def apply(values: ArraySeq[Option[Boolean]]) = {
     require(values.nonEmpty)
     new Bits(values)
   }
+  def parse(s: String): Either[String, Bits] = {
+    val bits = s.replace(" ", "").map {
+      case '1' => Some(true)
+      case '0' => Some(false)
+      case 'x' | 'X' | '-' => None
+      case c => return Left(s"unexpected character '$c'")
+    }.to(ArraySeq)
+    if (bits.isEmpty) Left("unexpected empty bits")
+    else Right(Bits(bits))
+  }
+
   implicit val encoder: jzon.Encoder[Bits] = jzon.Encoder[String].contramap(_.render)
+  implicit val decoder: jzon.Decoder[Bits] = jzon.Decoder[String].emap(parse(_))
 }
 
 // a symbolic (usually alphanumeric) representation of Bits that is managed
@@ -266,7 +280,9 @@ object BitsSym {
   def apply(value: String): BitsSym = new BitsSym(value)
 
   implicit val encoder: jzon.Encoder[BitsSym] = jzon.Encoder[String].contramap(_.value)
+  implicit val decoder: jzon.Decoder[BitsSym] = jzon.Decoder[String].map(BitsSym(_))
   implicit val fencoder: jzon.FieldEncoder[BitsSym] = jzon.FieldEncoder.string.contramap(_.value)
+  implicit val fdecoder: jzon.FieldDecoder[BitsSym] = jzon.FieldDecoder.string.map(BitsSym(_))
 
   def alpha: LazyList[BitsSym] = LazyList.from(1).map { i_ =>
     val buf = new java.lang.StringBuffer
@@ -468,6 +484,13 @@ sealed trait MinSum {
     case _ => this
   }
 
+  // should really only accept booleans, not optional booleans.
+  def eval(input: Bits): Boolean = this match {
+    case Leaf(bits) => input.isSubsetOf(bits)
+    case And(as) => as.forall(_.eval(input))
+    case Or(os) => os.exists(_.eval(input))
+  }
+
 }
 object MinSum {
   case class And(entries: List[MinSum]) extends MinSum
@@ -475,13 +498,15 @@ object MinSum {
   case class Leaf(bits: Bits) extends MinSum
 }
 
-// the nested lists are output channel, sums, products.
+// the nested lists are output channel, sums, products. we could have encoded
+// List[MinSum] but this restricts each output to sums of products.
 case class MinSumsOfProducts(
   symbols: Map[BitsSym, Bits],
   sums_of_products: List[List[List[BitsSym]]]
 )
 object MinSumsOfProducts {
   implicit val encoder: jzon.Encoder[MinSumsOfProducts] = jzon.Encoder.derived
+  implicit val decoder: jzon.Decoder[MinSumsOfProducts] = jzon.Decoder.derived
 }
 
 // Local Variables:
