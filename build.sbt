@@ -4,6 +4,8 @@ name := "electronics"
 licenses := List(License.GPL3_or_later)
 ThisBuild / scalaVersion := "2.13.11"
 
+libraryDependencies += "com.fommil" %% "jzon" % "1.0.0"
+
 scalacOptions += "-Ywarn-unused"
 
 assembly / assemblyOutputPath := file(s"${name.value}.jar")

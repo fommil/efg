@@ -16,20 +16,21 @@
 // one.
 //
 // Outputs a human readable representation of the minimal sum of prime
-// implicants. The interpretation of the output is such that each + (OR)
-// represents a designer's choice that, when a decision has been made, the logic
-// gates to be used are an OR over each of the parts. For example 'A . C . F (D
-// + E)' means that either ACFD or ACFE are valid circuits. When implementing
-// ACFD we should implement 'A OR C OR F OR D'. Of course, each gate has
-// different numbers of bits in its comparison and there may be further circuit
-// optimisation from sharing of substructure (including across output channels,
-// and the use of inverted bits).
+// implicants to stdout, and a machine readable version to disk if requested.
+// The interpretation of the output is such that each + (OR) represents a
+// designer's choice that, when a decision has been made, the logic gates to be
+// used are an OR over each of the parts. For example 'A . C . F (D + E)' means
+// that either ACFD or ACFE are valid circuits. When implementing ACFD we should
+// implement 'A OR C OR F OR D'. Of course, each gate has different numbers of
+// bits in its comparison and there may be further circuit optimisation from
+// sharing of substructure (including across output channels, and the use of
+// inverted bits).
 //
-// TODO machine readable output for further analysis (including table recreation)
 // TODO reverse engineered examples from the paper based on hand-provided mins
 package mccluskey
 
 import java.io.File
+import java.lang.IllegalStateException
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
@@ -39,10 +40,16 @@ object Main {
   private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01xX]+)([|][ 01xX]+)?$".r
 
   def main(args: Array[String]): Unit = {
-    require(args.length == 1, "one input file must be provided")
-    val file = new File(args(0))
-    require(file.isFile(), s"$file must exist")
-    val input = Files.readString(file.toPath, UTF_8)
+    require(args.length >= 1, "an input file must be provided")
+    val in = new File(args(0))
+    require(in.isFile(), s"$in must exist")
+
+    var out: File = null
+    if (args.length >= 2) {
+      out = new File(args(1))
+    }
+
+    val input = Files.readString(in.toPath, UTF_8)
 
     val canon = canonical_representation(input)
     val outputs = canon.head.outputs.values.length
@@ -65,6 +72,19 @@ object Main {
     mins.foreach {
       case (_, human) =>
         System.out.println(s"${human.render(symbols)}")
+    }
+
+    if (out ne null) {
+      if (out.isFile()) out.delete()
+      out.getParentFile().mkdirs()
+
+      val lookup = symbols.toList.map(_.swap).toMap
+      val outputs = mins.toList
+        .map { case (machine, _) => machine.asMinSums.map(_.map(symbols(_))) }
+      val machine = MachineReadable(lookup, outputs)
+      val json = jzon.Encoder[MachineReadable].toJson(machine, Some(0))
+
+      Files.writeString(out.toPath, json, UTF_8)
     }
   }
 
@@ -231,11 +251,14 @@ case class Bits(
 
   override def toString = render
 }
+object Bits {
+  implicit val encoder: jzon.Encoder[Bits] = jzon.Encoder[String].contramap(_.render)
+}
 
 // a potential prime implicant, derived from one or more p-terms or d-terms
 case class Term(
   inputs: Bits,
-  outputs: Bits,
+  outputs: Bits, // TODO variant without the output
   // the row labels included in this term
   labels: TreeSet[String]
 ) {
@@ -293,6 +316,21 @@ sealed trait MinSum {
       val parts = entries.map(_.render(symbols, false))
       if (top) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
+  }
+
+  override final def toString: String = render(Map.empty, false)
+
+  // when minimised, this should succeed.
+  final def asMinSums: List[List[Bits]] = this match {
+    case t: Leaf => Or(List(And(List(t)))).asMinSums
+    case t: And => Or(List(t)).asMinSums
+    case Or(sums) => sums.map {
+      case And(products) => products.map {
+        case Leaf(bits) => bits
+        case other => throw new IllegalStateException(other.toString)
+      }
+      case other => throw new IllegalStateException(other.toString)
+    }
   }
 
   // Reduces the boolean statement to a minimal form by applying boolean laws
@@ -423,6 +461,15 @@ object MinSum {
       case (bits, sym) => String.format("%-" + pad + "s", sym) + " = " + bits.render
     }.mkString("\n")
   }
+}
+
+// the nested lists are output channel, sums, products.
+case class MachineReadable(
+  symbols: Map[String, Bits],
+  outputs: List[List[List[String]]]
+)
+object MachineReadable {
+  implicit val encoder: jzon.Encoder[MachineReadable] = jzon.Encoder.derived
 }
 
 // Local Variables:
