@@ -1,5 +1,4 @@
-# truth table reconstructed from TableXII of McCluskey
-# from the minimal sum of products.
+# Reconstructed from Table XII in McCluskey56.
 #
 # Interestingly, we find A.D.F as a minimal sum whereas
 # McCluskey only found minimal sums with 3 components,
