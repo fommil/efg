@@ -14,5 +14,4 @@ assemblyMergeStrategy := {
   case x => assemblyMergeStrategy.value(x)
 }
 
-// TODO full adder
 // TODO 4 bit adder
