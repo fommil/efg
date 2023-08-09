@@ -22,6 +22,12 @@
 // used are an OR over each of the parts. For example 'A.C.F.(D + E)' means that
 // either A.C.F.D or A.C.F.E are valid circuits. When implementing A.C.F.D we
 // should implement 'A OR C OR F OR D'.
+//
+// It is entirely possible, especially multi-output, that some gates are subsets
+// of others. It is up downstream steps to discover such subsets when
+// considering optimal layouts. For example, -100 may be split into (-1--
+// AND --00) where either of the gates may be reused or simply because the
+// hardware implementation is only possible with 1 or 2 input gates.
 package mccluskey
 
 import java.io.File
@@ -63,12 +69,6 @@ object Main {
     System.out.println(BitsSym.render(symbols))
     System.out.println("")
 
-    // TODO simplify shared symbols across outputs ... look for subsets
-    //
-    // is there an opportunity to split symbols into shared symbols between
-    // output channels? e.g. C=--0-, D=-10- could be split into D = C . E where
-    // E=-1-- and see the clear reuse of C. i.e. if any gate is a subset of
-    // another gate then split it into two parts and iterate.
     mins.foreach {
       case (_, human) =>
         System.out.println(s"${human.render(symbols)}")
