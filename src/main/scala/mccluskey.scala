@@ -25,8 +25,6 @@
 // bits in its comparison and there may be further circuit optimisation from
 // sharing of substructure (including across output channels, and the use of
 // inverted bits).
-//
-// TODO investigate why we differ from McCluskey's paper for TableXII
 package mccluskey
 
 import java.io.File
@@ -52,10 +50,15 @@ object Main {
     val input = Files.readString(in.toPath, UTF_8)
 
     val canon = canonical_representation(input)
+    // System.out.println(canon.map(_._1).mkString("\n"))
+
     val output_length = canon.head._2.values.length
 
     val mins = (0 until output_length).map { i =>
       val primes = prime_implicants(canon, i)
+
+      System.out.println(prime_implicant_table(primes))
+
       val minimal = prime_sums(primes).minimise
       (minimal, minimal.expand)
     }
@@ -200,6 +203,21 @@ object Main {
         else Some(t_)
       }
     }
+  }
+
+  // for debugging
+  def prime_implicant_table(primes: List[Term]): String = {
+    val b = new java.lang.StringBuffer
+    val labels = primes.flatMap(_.labels).to(TreeSet)
+    primes.foreach { prime =>
+      b.append(prime.inputs.render)
+      b.append(" ")
+      labels.foreach { label =>
+        b.append(if (prime.labels.contains(label)) "x" else " ")
+      }
+      b.append("\n")
+    }
+    b.toString
   }
 
   // this is the novel thing that McCluskey did in his paper that filled in gaps
