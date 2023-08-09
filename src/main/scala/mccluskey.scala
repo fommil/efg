@@ -299,11 +299,8 @@ object BitsSym {
     override def compare(a: BitsSym, b: BitsSym): Int = a.value.compareTo(b.value)
   }
 
-  // TODO tidy up the jzon field encoders
-  implicit val encoder: jzon.Encoder[BitsSym] = jzon.Encoder[String].contramap(_.value)
-  implicit val decoder: jzon.Decoder[BitsSym] = jzon.Decoder[String].map(BitsSym(_))
-  implicit val fencoder: jzon.FieldEncoder[BitsSym] = jzon.FieldEncoder.string.contramap(_.value)
-  implicit val fdecoder: jzon.FieldDecoder[BitsSym] = jzon.FieldDecoder.string.map(BitsSym(_))
+  implicit val encoder: jzon.FieldEncoder[BitsSym] = jzon.FieldEncoder[String].contramap(_.value)
+  implicit val decoder: jzon.FieldDecoder[BitsSym] = jzon.FieldDecoder[String].map(BitsSym(_))
 
   def alpha: LazyList[BitsSym] = LazyList.from(1).map { i_ =>
     val buf = new java.lang.StringBuffer
