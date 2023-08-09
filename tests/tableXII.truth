@@ -50,7 +50,8 @@
 # -101   x   x 
 # 110-      xx 
 #
-# NOTE: 8 rows, but Table XII has 9! FIXME
+# Of particular note is that our table has 8 rows, but Table XII has 9.
+# It is therefore possible that there is a typo in the description of the terms.
 0 0 0 0
 0 0 0 1
 0 1 0 1

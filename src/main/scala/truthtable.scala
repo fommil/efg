@@ -38,6 +38,18 @@ object Main {
       // how the minsums are actually constructed.
       val logic = Or(channel.head.map(s => Leaf(mins.symbols(s))))
 
+      // // debugging
+      // System.out.println("     | " + logic)
+      // all_inputs.foreach { row =>
+      //   var s = row.render + " |  "
+      //   logic.entries.foreach { l =>
+      //     if (l.eval(row)) s += "1"
+      //     else s += "0"
+      //     s += "      "
+      //   }
+      //   System.out.println(s)
+      // }
+
       all_inputs.filter(logic.eval(_)).toSet
     }
 
