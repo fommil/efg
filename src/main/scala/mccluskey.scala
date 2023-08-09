@@ -32,7 +32,7 @@ import java.lang.IllegalStateException
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, TreeSet }
+import scala.collection.immutable.{ ArraySeq, TreeMap, TreeSet }
 
 object Main {
   private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01xX]+)([|][ 01xX]+)?$".r
@@ -56,9 +56,7 @@ object Main {
 
     val mins = (0 until output_length).map { i =>
       val primes = prime_implicants(canon, i)
-
-      System.out.println(prime_implicant_table(primes))
-
+      // System.out.println(prime_implicant_table(primes))
       val minimal = prime_sums(primes).minimise
       (minimal, minimal.expand)
     }
@@ -81,7 +79,7 @@ object Main {
       if (out.isFile()) out.delete()
       out.getParentFile().mkdirs()
 
-      val lookup = symbols.toList.map(_.swap).toMap
+      val lookup = TreeMap(symbols.toList.map(_.swap): _*)
       val outputs = mins.toList
         .map { case (machine, _) => machine.asMinSums.map(_.map(symbols(_))) }
       val machine = MinSumsOfProducts(lookup, outputs)
@@ -297,6 +295,11 @@ final class BitsSym private (val value: String) extends AnyVal {
 object BitsSym {
   def apply(value: String): BitsSym = new BitsSym(value)
 
+  implicit val ordering: Ordering[BitsSym] = new Ordering[BitsSym] {
+    override def compare(a: BitsSym, b: BitsSym): Int = a.value.compareTo(b.value)
+  }
+
+  // TODO tidy up the jzon field encoders
   implicit val encoder: jzon.Encoder[BitsSym] = jzon.Encoder[String].contramap(_.value)
   implicit val decoder: jzon.Decoder[BitsSym] = jzon.Decoder[String].map(BitsSym(_))
   implicit val fencoder: jzon.FieldEncoder[BitsSym] = jzon.FieldEncoder.string.contramap(_.value)
