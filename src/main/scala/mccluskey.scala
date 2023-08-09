@@ -36,6 +36,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
 import scala.collection.immutable.{ ArraySeq, TreeMap, TreeSet }
+import jzon.syntax._
 
 object Main {
   private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01xX]+)([|][ 01xX]+)?$".r
@@ -82,9 +83,8 @@ object Main {
       val outputs = mins.toList
         .map { case (machine, _) => machine.asMinSums.map(_.map(symbols(_))) }
       val machine = MinSumsOfProducts(lookup, outputs)
-      val json = jzon.Encoder[MinSumsOfProducts].toJson(machine, Some(0))
 
-      Files.writeString(out.toPath, json, UTF_8)
+      Files.writeString(out.toPath, machine.toJsonPretty, UTF_8)
     }
   }
 
