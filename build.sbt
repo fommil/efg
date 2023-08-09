@@ -13,5 +13,3 @@ assemblyMergeStrategy := {
   case "rootdoc.txt" => MergeStrategy.discard
   case x => assemblyMergeStrategy.value(x)
 }
-
-// TODO 4 bit adder

@@ -325,6 +325,10 @@ object BitsSym {
 }
 
 // a potential prime implicant, derived from one or more p-terms or d-terms
+//
+// String labels are useful for debugging but this could be swapped out to be
+// the Integer value of the input bits to save memory and be a bit more
+// efficient.
 case class Term(
   inputs: Bits,
   labels: TreeSet[String]
