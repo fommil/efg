@@ -79,7 +79,7 @@ object Main {
       if (out.isFile()) out.delete()
       out.getParentFile().mkdirs()
 
-      val lookup = TreeMap(symbols.toList.map(_.swap): _*)
+      val lookup = symbols.toList.map(_.swap).to(TreeMap)
       val outputs = mins.toList
         .map { case (machine, _) => machine.asMinSums.map(_.map(symbols(_))) }
       val machine = MinSumsOfProducts(lookup, outputs)
