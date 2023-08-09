@@ -13,3 +13,8 @@ assemblyMergeStrategy := {
   case "rootdoc.txt" => MergeStrategy.discard
   case x => assemblyMergeStrategy.value(x)
 }
+
+// TODO reverse engineer all the examples from McCluskey
+// TODO Ben Eater's digital LED
+// TODO full adder
+// TODO 4 bit adder

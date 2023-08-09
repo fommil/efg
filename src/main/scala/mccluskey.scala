@@ -11,9 +11,7 @@
 // Missing rows are treated as having 0 in the output column.
 //
 // Rows may start with @label (followed by whitespace) which will be used as the
-// label instead of an automatically generated symbol based on the row number.
-// The program will halt if a generated symbol clashes with a manually provided
-// one.
+// label instead of an automatically generated symbol based on the input bits.
 //
 // Outputs a human readable representation of the minimal sum of prime
 // implicants to stdout, and a machine readable version to disk if requested.
@@ -66,6 +64,8 @@ object Main {
     System.out.println(BitsSym.render(symbols))
     System.out.println("")
 
+    // TODO simplify shared symbols across outputs ... look for subsets
+    //
     // is there an opportunity to split symbols into shared symbols between
     // output channels? e.g. C=--0-, D=-10- could be split into D = C . E where
     // E=-1-- and see the clear reuse of C. i.e. if any gate is a subset of
@@ -99,7 +99,7 @@ object Main {
         val row = line.split("#").applyOrElse(0, (_: Int) => "")
         if (row.trim.isEmpty) None
         else row match {
-          case RowPattern(label, input, output) =>
+          case RowPattern(label_, input, output) =>
             // successful parseBits are guaranteed non-empty by the regexp
             val in = Bits.parse(input).toOption.get
             val out: Bits = {
@@ -109,33 +109,35 @@ object Main {
                 case Left(err) => throw new IllegalArgumentException(err)
               }
             }
-            Some((in, out, Option(label).map(_.tail)))
+            val label =
+              if (label_ ne null) label_.tail
+              else if (in.values.exists(_.isEmpty)) "" // will be replaced later
+              else java.lang.Integer.parseInt(in.render, 2).toString
+            Some(Term(in, TreeSet(label)) -> out)
         }
       }
 
-    require(rows.map(_._1.values.length).distinct.length == 1, "inputs must have the same length")
+    require(rows.map(_._1.inputs.values.length).distinct.length == 1, "inputs must have the same length")
     require(rows.map(_._2.values.length).distinct.length == 1, "outputs must have the same length")
     require(rows.map(_._1).distinct.length == rows.map(_._1).length, "inputs must be unique")
 
-    val terms_ = rows.zipWithIndex.map {
-      case ((input, output, label_), i) =>
-        val label = label_.getOrElse(i.toString)
-        Term(input, TreeSet(label)) -> output
-    }
-
     // expand out input dontcares into explicit rows
-    val terms = terms_.foldLeft(List.empty[(Term, Bits)]) {
+    val terms = rows.foldLeft(List.empty[(Term, Bits)]) {
       case (seen, row@(term, outputs)) =>
         if (term.inputs.values.forall(_.isDefined)) row :: seen
         else {
-          val excluded = seen.map(_._1.inputs).toSet.filter(term.inputs.isSubsetOf(_))
+          val excluded = seen.map(_._1.inputs).toSet.filter(_.isSubsetOf(term.inputs))
           val expanded = term.inputs.values.foldLeft(List(ArraySeq.empty[Boolean])) {
             case (acc, Some(t)) => acc.map(_ :+ t)
             case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
           }.map(bools => Bits(bools.map(Option(_))))
-          val label = term.labels.head
-          val vrows = expanded.toSet.diff(excluded).toList.zipWithIndex.map {
-            case (vrow, i) => Term(vrow, TreeSet(s"${label}.${i}")) -> outputs
+          val label_base = term.labels.head
+
+          val vrows = expanded.toSet.diff(excluded).toList.map {
+            case vrow =>
+              val num = Integer.parseInt(vrow.render, 2).toString
+              val label = if (label_base.isEmpty) num else s"${label_base}.${num}"
+              Term(vrow, TreeSet(label)) -> outputs
           }
           vrows.reverse ::: seen
         }
