@@ -193,9 +193,11 @@ object Main {
     }
     val repr = surface._1 ++ surface._2
 
+    if (dterms.isEmpty) return repr
+
     val dontcares = dterms.flatMap(_.labels).to(TreeSet)
     repr.flatMap { t =>
-      if (!dontcares.subsetOf(t.labels)) Some(t)
+      if (t.labels.intersect(dontcares).isEmpty) Some(t)
       else {
         val t_ = t.copy(labels = t.labels diff dontcares)
         if (t_.labels.isEmpty) None

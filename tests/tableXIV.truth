@@ -1,0 +1,7 @@
+# Table XIV in McCluskey56
+# Note that the optimal solution has @9=0 and @14=1.
+@5  0 1 0 1 | 1
+@6  0 1 1 0 | 1
+@9  1 0 0 1 | x
+@13 1 1 0 1 | 1
+@14 1 1 1 0 | x
