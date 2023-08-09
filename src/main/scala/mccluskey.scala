@@ -11,18 +11,17 @@
 // Missing rows are treated as having 0 in the output column.
 //
 // Rows may start with @label (followed by whitespace) which will be used as the
-// label instead of an automatically generated symbol based on the input bits.
+// label instead of an automatically generated symbol based on the input bits,
+// useful for debugging against literature based examples.
 //
 // Outputs a human readable representation of the minimal sum of prime
 // implicants to stdout, and a machine readable version to disk if requested.
+//
 // The interpretation of the output is such that each + (OR) represents a
 // designer's choice that, when a decision has been made, the logic gates to be
-// used are an OR over each of the parts. For example 'A . C . F (D + E)' means
-// that either ACFD or ACFE are valid circuits. When implementing ACFD we should
-// implement 'A OR C OR F OR D'. Of course, each gate has different numbers of
-// bits in its comparison and there may be further circuit optimisation from
-// sharing of substructure (including across output channels, and the use of
-// inverted bits).
+// used are an OR over each of the parts. For example 'A.C.F.(D + E)' means that
+// either A.C.F.D or A.C.F.E are valid circuits. When implementing A.C.F.D we
+// should implement 'A OR C OR F OR D'.
 package mccluskey
 
 import java.io.File
