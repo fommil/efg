@@ -371,6 +371,15 @@ case class Term(
   override def toString = render
 }
 
+// Created by construction from the prime implicants in the form: AND(OR(...),
+// ...) then rearranged and simplified into the minimal sum of products
+// OR(AND(...), ...). Also provided is an expansion back into nested
+// OR(AND(OR(AND(...)))) forms for human consumption.
+//
+// In hindsight, this should have been two ASTs: one for the AND(OR(...)) and
+// another for the OR(AND(...)) form, which would have made the transforms a lot
+// simpler since they would be hard-coded to only support those two specific
+// forms of 2-level logic.
 sealed trait MinSum {
   import MinSum._
 
