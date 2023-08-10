@@ -28,6 +28,13 @@
 // considering optimal layouts. For example, -100 may be split into (-1--
 // AND --00) where either of the gates may be reused or simply because the
 // hardware implementation is only possible with 1 or 2 input gates.
+//
+// The Quine-McCluskey algorithm is known to break down for problems that have a
+// lot of inputs, due to the number of primes. For this reason, research has
+// continued in the form of "Logic minimization algorithms for VLSI synthesis"
+// Brayton84, aka ESPRESSO-II, and latterly ESPRESSO-SIGNATURE. These algorithms
+// use heuristic approaches to find a smaller set of sum of products that are
+// highly likely to contain the globally optimal minimum.
 package mccluskey
 
 import java.io.File
