@@ -53,6 +53,8 @@ object Main {
 
     val input = Files.readString(in.toPath, UTF_8)
 
+    // TODO output the inverted outputs as well, which can be more efficient.
+
     val canon = canonical_representation(input)
     // System.out.println(canon.map(_._1).mkString("\n"))
 
@@ -247,6 +249,8 @@ object Main {
 final class Bits private(
   // Array doesn't have a sensible equals, so use ArraySeq
   val values: ArraySeq[Option[Boolean]]
+    // could optimise memory usage with Array(Seq)[Char] holding -1,0,1 or at
+    // least just having a custom ADT for Option[Boolean].
 ) extends AnyVal {
   def render: String =  {
     val input = values.map {
