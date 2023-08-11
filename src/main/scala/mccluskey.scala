@@ -442,6 +442,8 @@ sealed trait MinSum {
       }
 
       // expand so that OR is on the top, and eliminate
+      // TODO XOR expansion (c.f. Brayton90)
+      // TODO Triangles (c.f. Brayton90)
       def expand(factors: List[MinSum], ors: List[Or]): List[MinSum] = ors match {
         case Nil => factors match {
           case List(factor) => List(factor)
