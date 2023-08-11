@@ -14,20 +14,12 @@
 // label instead of an automatically generated symbol based on the input bits,
 // useful for debugging against literature based examples.
 //
-// Outputs a human readable representation of the minimal sum of prime
-// implicants to stdout, and a machine readable version to disk if requested.
+// Outputs the minimal sum of prime implicants to stdout in JSON format.
 //
-// The interpretation of the output is such that each + (OR) represents a
-// designer's choice that, when a decision has been made, the logic gates to be
-// used are an OR over each of the parts. For example 'A.C.F.(D + E)' means that
-// either A.C.F.D or A.C.F.E are valid circuits. When implementing A.C.F.D we
-// should implement 'A OR C OR F OR D'.
-//
-// It is entirely possible, especially multi-output, that some gates are subsets
-// of others. It is up downstream steps to discover such subsets when
-// considering optimal layouts. For example, -100 may be split into (-1--
-// AND --00) where either of the gates may be reused or simply because the
-// hardware implementation is only possible with 1 or 2 input gates.
+// The interpretation of the output is such that each sum of products is a
+// complement of the circuit that recovers the truth table. For example 'A.B.C'
+// means to implement 'A OR B OR C' over the cubes A, B and C, where cubes are
+// multi-input AND gates that may require their input to be inverted.
 //
 // The Quine-McCluskey algorithm is known to break down for problems that have a
 // lot of inputs, due to the number of primes. For this reason, research has
@@ -35,28 +27,29 @@
 // Brayton84, aka ESPRESSO-II, and latterly ESPRESSO-SIGNATURE. These algorithms
 // use heuristic approaches to find a smaller set of sum of products that are
 // highly likely to contain the globally optimal minimum.
+//
+// The 2-level logic form that is output here is usually has the shortest
+// critical path, since it is maximally parallel, but is woefully inefficient in
+// terms of number of gates. Therefore, the next step in practical circuit
+// design is typically Multilevel Logic Synthesis.
 package mccluskey
 
 import java.io.File
-import java.lang.IllegalStateException
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, TreeMap, TreeSet }
+import scala.collection.immutable.{ ArraySeq, BitSet, TreeMap, TreeSet }
+
 import jzon.syntax._
+import logic.Logic
 
 object Main {
   private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01xX]+)([|][ 01xX]+)?$".r
 
   def main(args: Array[String]): Unit = {
-    require(args.length >= 1, "an input file must be provided")
+    require(args.length == 1, "an input file must be provided")
     val in = new File(args(0))
     require(in.isFile(), s"$in must exist")
-
-    var out: File = null
-    if (args.length >= 2) {
-      out = new File(args(1))
-    }
 
     val input = Files.readString(in.toPath, UTF_8)
 
@@ -65,42 +58,23 @@ object Main {
     val canon = canonical_representation(input)
     // System.out.println(canon.map(_._1).mkString("\n"))
 
-    val output_length = canon.head._2.values.length
+    val output_length = canon.head._2.length
 
     val mins = (0 until output_length).map { i =>
       val primes = prime_implicants(canon, i)
       // System.out.println(prime_implicant_table(primes))
-      val minimal = prime_sums(primes).minimise
-      (minimal, minimal.expand)
-    }
+      prime_sums(primes).minimise
+    }.toList
 
     // shared across all the outputs
-    val symbols = mins.flatMap(_._2.gates).distinct.zip(BitsSym.alpha).toMap
-    System.out.println(BitsSym.render(symbols))
-    System.out.println("")
-
-    mins.foreach {
-      case (_, human) =>
-        System.out.println(s"${human.render(symbols)}")
-    }
-
-    if (out ne null) {
-      if (out.isFile()) out.delete()
-      out.getParentFile().mkdirs()
-
-      val lookup = symbols.toList.map(_.swap).to(TreeMap)
-      val outputs = mins.toList
-        .map { case (machine, _) => machine.asMinSums.map(_.map(symbols(_))) }
-      val machine = MinSumsOfProducts(lookup, outputs)
-
-      Files.writeString(out.toPath, machine.toJsonPretty, UTF_8)
-    }
+    val out = SofP.Storage.create(mins)
+    System.out.println(out.toJsonPretty)
   }
 
   // construct the canonical representation (including d-terms) from the user's
-  // .truth table along with each row's output Bits. If the user provided rows
+  // .truth table along with each row's output Cube. If the user provided rows
   // with zero output they will be included here.
-  def canonical_representation(s: String): List[(Term, Bits)] = {
+  def canonical_representation(s: String): List[(Term, Cube)] = {
     val rows = s
       .split("\n").toList
       .flatMap { line =>
@@ -108,40 +82,37 @@ object Main {
         if (row.trim.isEmpty) None
         else row match {
           case RowPattern(label_, input, output) =>
-            // successful parseBits are guaranteed non-empty by the regexp
-            val in = Bits.parse(input).toOption.get
-            val out: Bits = {
-              if (output eq null) Bits.ONE
-              else Bits.parse(output.tail) match {
+            // successful parseCube are guaranteed non-empty by the regexp
+            val in = Cube.parse(input).toOption.get
+            val out: Cube = {
+              if (output eq null) Cube.ONE
+              else Cube.parse(output.tail) match {
                 case Right(bits) => bits
                 case Left(err) => throw new IllegalArgumentException(err)
               }
             }
             val label =
               if (label_ ne null) label_.tail
-              else if (in.values.exists(_.isEmpty)) "" // will be replaced later
+              else if (in.dterms) "" // will be replaced later
               else java.lang.Integer.parseInt(in.render, 2).toString
             Some(Term(in, TreeSet(label)) -> out)
         }
       }
 
-    require(rows.map(_._1.inputs.values.length).distinct.length == 1, "inputs must have the same length")
-    require(rows.map(_._2.values.length).distinct.length == 1, "outputs must have the same length")
+    require(rows.map(_._1.inputs.length).distinct.length == 1, "inputs must have the same length")
+    require(rows.map(_._2.length).distinct.length == 1, "outputs must have the same length")
     require(rows.map(_._1).distinct.length == rows.map(_._1).length, "inputs must be unique")
 
     // expand out input dontcares into explicit rows
-    val terms = rows.foldLeft(List.empty[(Term, Bits)]) {
+    val terms = rows.foldLeft(List.empty[(Term, Cube)]) {
       case (seen, row@(term, outputs)) =>
-        if (term.inputs.values.forall(_.isDefined)) row :: seen
+        if (!term.inputs.dterms) row :: seen
         else {
-          val excluded = seen.map(_._1.inputs).toSet.filter(_.isSubsetOf(term.inputs))
-          val expanded = term.inputs.values.foldLeft(List(ArraySeq.empty[Boolean])) {
-            case (acc, Some(t)) => acc.map(_ :+ t)
-            case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
-          }.map(bools => Bits(bools.map(Option(_))))
+          val excluded = seen.map(_._1.inputs).filter(_.subsetOf(term.inputs))
+          val expanded = term.inputs.fill
           val label_base = term.labels.head
 
-          val vrows = expanded.toSet.diff(excluded).toList.map {
+          val vrows = expanded.diff(excluded).map {
             case vrow =>
               val num = Integer.parseInt(vrow.render, 2).toString
               val label = if (label_base.isEmpty) num else s"${label_base}.${num}"
@@ -159,9 +130,9 @@ object Main {
   // note that p-terms and d-terms (don't cares) are treated the same to get to
   // the most minimal representation, but then d-terms are filtered out since
   // they are not needed in minimisation.
-  def prime_implicants(terms_outputs: List[(Term, Bits)], index: Int): List[Term] = {
-    val pterms = terms_outputs.filter(_._2.values(index) == Some(true)).map(_._1)
-    val dterms = terms_outputs.filter(_._2.values(index) == None).map(_._1)
+  def prime_implicants(terms_outputs: List[(Term, Cube)], index: Int): List[Term] = {
+    val pterms = terms_outputs.filter(_._2.pterm(index)).map(_._1)
+    val dterms = terms_outputs.filter(_._2.dterm(index)).map(_._1)
 
     // performs a single sweep of the first list of terms against themselves and
     // the second list, returning newly merged terms followed by those that were
@@ -232,13 +203,13 @@ object Main {
 
   // this is the novel thing that McCluskey did in his paper that filled in gaps
   // in Quine52 and those that came before him (McColl, Blake, etc).
-  def prime_sums(primes: List[Term]): MinSum = {
+  def prime_sums(primes: List[Term]): PofS = {
     val labels = primes.flatMap(_.labels).to(TreeSet).toList
 
-    val logic = MinSum.And(labels.map { label =>
-      val rows = primes.filter(_.labels contains label).map(t => MinSum.Leaf(t.inputs))
+    val logic = PofS(labels.map { label =>
+      val rows = primes.filter(_.labels contains label).map(t => t.inputs)
       assert(rows.nonEmpty)
-      MinSum.Or(rows)
+      rows
     })
 
     logic
@@ -246,21 +217,32 @@ object Main {
 
 }
 
-// input bits, None is McCluskey's hyphen.
+// This may be interpreted as a multi-input AND gate where a 1 indicates that
+// the input channel must be true, 0 that it must be false (inverted), and -
+// that it is ignored (dontcare). Most significant bit on the left.
 //
-// This represents a logic gate of N bits where N is equal to the number of Some
-// entries. e.g. -1-0 is a 2 input gate where index 1 is true and index 3 is
-// false. These can be decomposed into smaller fixed-input gates and shared
-// between each other, which is a circuit design optimisation step that is not
-// considered by McCluskey.
-final class Bits private(
+// Many research papers use the verbose x_{1}x_{3}' notation.
+final class Cube private(
   // Array doesn't have a sensible equals, so use ArraySeq
-  val values: ArraySeq[Option[Boolean]]
-    // could optimise memory usage with Array(Seq)[Char] holding -1,0,1 or at
-    // least just having a custom ADT for Option[Boolean].
+  private val values: ArraySeq[Option[Boolean]] // TODO optimise memory usage
 ) extends AnyVal {
+
+  def length: Int = values.length
+
+  def pterm(i: Int): Boolean = values(i) == Some(true)
+  def dterm(i: Int): Boolean = values(i).isEmpty
+  def dterms: Boolean = values.exists(_.isEmpty)
+
+  // fill all the dontcare holes of this to obtain fully populated instances
+  def fill: List[Cube] = {
+    values.foldLeft(List(ArraySeq.empty[Boolean])) {
+      case (acc, Some(t)) => acc.map(_ :+ t)
+      case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
+    }.map(bools => Cube(bools.map(Option(_))))
+  }
+
   def render: String =  {
-    val input = values.map {
+    val input = values.reverse.map {
       case None => '-'
       case Some(true) => '1'
       case Some(false) => '0'
@@ -268,7 +250,8 @@ final class Bits private(
     input.mkString
   }
 
-  def isSubsetOf(that: Bits): Boolean =
+  // aka fully covered by that
+  def subsetOf(that: Cube): Boolean =
     (this.values.length == that.values.length) && {
       values.zip(that.values).forall {
         case (Some(a), Some(b)) => a == b
@@ -277,46 +260,74 @@ final class Bits private(
       }
     }
 
+  def canMerge(that: Cube): Boolean = {
+    val alts = values.zip(that.values).filter {
+      case (oa, ob) => oa != ob
+    }
+    alts.lengthCompare(1) == 0
+  }
+
+  // does not check for compatibility, always guard with canMerge
+  def merge(that: Cube): Cube = Cube {
+    values.zip(that.values).map {
+      case (Some(a), Some(b)) if a == b => Some(a)
+      case _ => None
+    }
+  }
+
+  def asLogic: Logic = {
+    val and = Logic.And(values.zipWithIndex.toList.flatMap {
+      case (None, _) => None
+      case (Some(t), i) => Some(if (t) Logic.In(i) else Logic.Inv(Logic.In(i)))
+    })
+    if (length == 1) and.entries.head
+    else and
+  }
+
   override def toString = render
 }
-object Bits {
-  val ONE = Bits(ArraySeq(Some(true)))
+object Cube {
+  val ONE = Cube(ArraySeq(Some(true)))
 
+  def apply(bs: BitSet, length: Int): Cube = Cube {
+    (0 until length).map(b => Some(bs.contains(b))).to(ArraySeq)
+  }
   def apply(values: ArraySeq[Option[Boolean]]) = {
     require(values.nonEmpty)
-    new Bits(values)
+    new Cube(values)
   }
-  def parse(s: String): Either[String, Bits] = {
+
+  def parse(s: String): Either[String, Cube] = {
     val bits = s.replace(" ", "").map {
       case '1' => Some(true)
       case '0' => Some(false)
       case 'x' | 'X' | '-' => None
       case c => return Left(s"unexpected character '$c'")
-    }.to(ArraySeq)
+    }.to(ArraySeq).reverse
     if (bits.isEmpty) Left("unexpected empty bits")
-    else Right(Bits(bits))
+    else Right(Cube(bits))
   }
 
-  implicit val encoder: jzon.Encoder[Bits] = jzon.Encoder[String].contramap(_.render)
-  implicit val decoder: jzon.Decoder[Bits] = jzon.Decoder[String].emap(parse(_))
+  implicit val encoder: jzon.Encoder[Cube] = jzon.Encoder[String].contramap(_.render)
+  implicit val decoder: jzon.Decoder[Cube] = jzon.Decoder[String].emap(parse(_))
 }
 
-// a symbolic (usually alphanumeric) representation of Bits that is managed
+// a symbolic (usually alphanumeric) representation of Cube that is managed
 // through a scoped lookup table.
-final class BitsSym private (val value: String) extends AnyVal {
+final class CubeSym private (val value: String) extends AnyVal {
   override def toString = value
 }
-object BitsSym {
-  def apply(value: String): BitsSym = new BitsSym(value)
+object CubeSym {
+  def apply(value: String): CubeSym = new CubeSym(value)
 
-  implicit val ordering: Ordering[BitsSym] = new Ordering[BitsSym] {
-    override def compare(a: BitsSym, b: BitsSym): Int = a.value.compareTo(b.value)
+  implicit val ordering: Ordering[CubeSym] = new Ordering[CubeSym] {
+    override def compare(a: CubeSym, b: CubeSym): Int = a.value.compareTo(b.value)
   }
 
-  implicit val encoder: jzon.FieldEncoder[BitsSym] = jzon.FieldEncoder[String].contramap(_.value)
-  implicit val decoder: jzon.FieldDecoder[BitsSym] = jzon.FieldDecoder[String].map(BitsSym(_))
+  implicit val encoder: jzon.FieldEncoder[CubeSym] = jzon.FieldEncoder[String].contramap(_.value)
+  implicit val decoder: jzon.FieldDecoder[CubeSym] = jzon.FieldDecoder[String].map(CubeSym(_))
 
-  def alpha: LazyList[BitsSym] = LazyList.from(1).map { i_ =>
+  def alpha: LazyList[CubeSym] = LazyList.from(1).map { i_ =>
     val buf = new java.lang.StringBuffer
     var i = i_
     while (i > 0) {
@@ -324,10 +335,10 @@ object BitsSym {
       buf.append(('A' + rem).toChar)
       i = (i - rem) / 26
     }
-    BitsSym(buf.reverse.toString)
+    CubeSym(buf.reverse.toString)
   }
 
-  def render(symbols: Map[Bits, BitsSym]): String = {
+  def render(symbols: Map[Cube, CubeSym]): String = {
     val pad = symbols.values.map(_.value.length).max
     symbols.toList.sortBy(_._2.value).map {
       case (bits, sym) => String.format("%-" + pad + "s", sym.value) + " = " + bits.render
@@ -339,29 +350,15 @@ object BitsSym {
 //
 // String labels are useful for debugging but this could be swapped out to be
 // the Integer value of the input bits to save memory and be a bit more
-// efficient.
+// efficient (could use bitset in that case instead of TreeSet).
 case class Term(
-  inputs: Bits,
+  inputs: Cube,
   labels: TreeSet[String]
 ) {
   require(labels.nonEmpty)
 
-  def canMerge(that: Term): Boolean = {
-    val alts = inputs.values.zip(that.inputs.values).filter {
-      case (oa, ob) => oa != ob
-    }
-    alts.lengthCompare(1) == 0
-  }
-
-  // does not check for compatibility, always guard with canMerge
-  def merge(that: Term): Term = {
-    val input_ = inputs.values.zip(that.inputs.values).map {
-      case (Some(a), Some(b)) if a == b => Some(a)
-      case _ => None
-    }
-    val labels_ = labels ++ that.labels
-    Term(Bits(input_), labels_)
-  }
+  def canMerge(that: Term): Boolean = inputs.canMerge(that.inputs)
+  def merge(that: Term): Term = Term(inputs.merge(that.inputs), labels ++ that.labels)
 
   def render: String = {
     val indexes = labels.mkString("(", ", ", ")")
@@ -371,189 +368,58 @@ case class Term(
   override def toString = render
 }
 
-// Created by construction from the prime implicants in the form: AND(OR(...),
-// ...) then rearranged and simplified into the minimal sum of products
-// OR(AND(...), ...). Also provided is an expansion back into nested
-// OR(AND(OR(AND(...)))) forms for human consumption.
-//
-// In hindsight, this should have been two ASTs: one for the AND(OR(...)) and
-// another for the OR(AND(...)) form, which would have made the transforms a lot
-// simpler since they would be hard-coded to only support those two specific
-// forms of 2-level logic.
-sealed trait MinSum {
-  import MinSum._
+// Product of Sums, i.e. 2-level logic (AND (OR ...) ... ), that can be
+// minimised to a Sum of Products (OR (AND ...) ...) of the same Cubes. Note
+// that although the (DeMorgan) complement is a Sum of Products it may result in
+// a separate set of Cubes and is not (usually) minimal, and therefore not of
+// interest here.
+case class PofS (ors: List[List[Cube]]) {
+  require(ors.nonEmpty)
 
-  final def gates: List[Bits] = this match {
-    case Leaf(bits) => List(bits)
-    case And(as) => as.flatMap(_.gates)
-    case Or(os) => os.flatMap(_.gates)
-  }
-
-  final def render(symbols: Map[Bits, BitsSym], top: Boolean = true): String = this match {
-    case Leaf(bits) => symbols.get(bits).map(_.toString).getOrElse(bits.render)
-    case And(entries) => entries.map(_.render(symbols, false)).mkString(".")
-    case Or(entries) =>
-      val parts = entries.map(_.render(symbols, false))
-      if (top) parts.mkString(" + ")
-      else parts.mkString("(", " + ", ")")
-  }
-
-  override final def toString: String = render(Map.empty, false)
-
-  // when minimised, this should succeed.
-  final def asMinSums: List[List[Bits]] = this match {
-    case t: Leaf => Or(List(And(List(t)))).asMinSums
-    case t: And => Or(List(t)).asMinSums
-    case Or(sums) => sums.map {
-      case And(products) => products.map {
-        case Leaf(bits) => bits
-        case other => throw new IllegalStateException(other.toString)
-      }
-      case other => throw new IllegalStateException(other.toString)
+  // idempotency:  A . A = A
+  //               A + A = A
+  // absorption:   A . (A + B) = A
+  //               A + (A . B) = A
+  // distribution: A . (B + C) = (A . B) + (A . C)
+  def minimise: SofP = SofP {
+    // TODO try using tail/head here as initial conditions
+    ors.foldLeft(List.empty[List[Cube]]) {
+      case (sop, or) =>
+        // TODO intersect is inefficient
+        val overlap = sop.filter(_.intersect(or).nonEmpty)
+        if (overlap.nonEmpty) overlap
+        else or.flatMap { c =>
+          if (sop.isEmpty) List(List(c))
+          else sop.map(c :: _)
+        }
     }
   }
 
-  // Reduces the boolean statement to a minimal form by applying boolean laws
-  // without complements (i.e. DeMorgan's law is ignored).
-  //
-  // Iteration may be needed beyond 2-level logic.
-  //
-  // This is probably incredibly inefficient.
-  final def minimise: MinSum = this match {
-    case _: Leaf => this
-    case And(entries) =>
-      val (leafs, ors) = {
-        // unnest, by associativity
-        // A . (B . C) = A . B . C
-        // and extract all the top-level terms, rearranging by commutativity
-        // A . B = B . A
-        var leafs: List[Leaf] = Nil
-        var ors: List[Or] = Nil
-        def extract(entry: MinSum): Unit = entry.minimise match {
-          case t: Leaf => leafs ::= t
-          case And(es) => es.foreach(extract)
-          case or: Or => ors ::= or
-        }
-        entries.foreach(extract)
-        // remove dupes by idempotency
-        // A . A = A
-        // A + A = A
-        (leafs.distinct, ors.distinct)
-      }
-
-      // expand so that OR is on the top, and eliminate
-      // TODO XOR expansion (c.f. Brayton90)
-      // TODO Triangles (c.f. Brayton90)
-      def expand(factors: List[MinSum], ors: List[Or]): List[MinSum] = ors match {
-        case Nil => factors match {
-          case List(factor) => List(factor)
-          case _ => List(And(factors))
-        }
-        case head :: tail =>
-          if (factors.intersect(head.entries).nonEmpty) {
-            // absorption
-            // A . (A + B) = A
-            expand(factors, tail)
-          } else {
-            // distribution
-            // A . (B + C) = (A . B) + (A . C)
-            head.entries.flatMap { e =>
-              expand(e :: factors, tail)
-            }
-          }
-      }
-
-      expand(leafs, ors) match {
-        case List(entry) => entry
-        case es => Or(es).minimise // inefficient, repeats a lot of work
-      }
-
-    case Or(entries) =>
-      // unnest by associativity
-      // A + (B + C) = (A + B) + C
-      // and dedupe by idempotentcy
-      // A + A = A
-      val tops = entries.map(_.minimise).flatMap {
-        case Or(es) => es
-        case e => List(e)
-      }.distinct // List[And | Leaf]
-
-      // reduce with absorption
-      // A + (A . B) = A
-      val reduced = tops.filter { e =>
-        !tops.exists { t =>
-          e != t && t.products.subsetOf(e.products)
-        }
-      }
-
-      reduced match {
-        case List(entry) => entry
-        case es => Or(es)
-      }
-  }
-
-  // assumes this his been minimised, the AND equivalent products
-  private[MinSum] lazy val products: Set[MinSum] = this match {
-    case e: Leaf => Set(e)
-    case And(es) => es.toSet
-    case _ => Set.empty
-  }
-
-  // for human (qualitative) consumption of a call to minimise.
-  def expand: MinSum = this match {
-    case Or(entries) =>
-      // pick the candidate with the most common counts and factor
-      val candidate = entries.flatMap(_.products).distinct.map { c =>
-        c -> entries.count(_.products.contains(c))
-      }.maxBy(_._2)
-      if (candidate._2 < 2) return this
-      val factor = candidate._1
-
-      val (common_, uncommon) = entries.partitionMap {
-        case e@ And(es) if e != factor & e.products.contains(factor) =>
-          Left(And(es.filter(_ != factor)))
-        case e =>
-          Right(e)
-      }
-
-      // in an ideal world we'd return Or(common ++ Or(uncommon).expand) but
-      // there are edge cases that need to be simplified or the output is messy.
-      val common = (factor, Or(common_).expand) match {
-        case (And(as), And(bs)) => And(as ++ bs)
-        case (a, b) => And(a :: b :: Nil)
-      }
-      if (uncommon.isEmpty) common
-      else Or(uncommon).expand match {
-        case Or(bs) => Or(common :: bs)
-        case bs => Or(common :: bs :: Nil)
-      }
-
-    case _ => this
-  }
-
-  // should really only accept booleans, not optional booleans.
-  def eval(input: Bits): Boolean = this match {
-    case Leaf(bits) => input.isSubsetOf(bits)
-    case And(as) => as.forall(_.eval(input))
-    case Or(os) => os.exists(_.eval(input))
-  }
-
-}
-object MinSum {
-  case class And(entries: List[MinSum]) extends MinSum
-  case class Or(entries: List[MinSum]) extends MinSum
-  case class Leaf(bits: Bits) extends MinSum
 }
 
-// the nested lists are output channel, sums, products. we could have encoded
-// List[MinSum] but this restricts each output to sums of products.
-case class MinSumsOfProducts(
-  symbols: Map[BitsSym, Bits],
-  sums_of_products: List[List[List[BitsSym]]]
-)
-object MinSumsOfProducts {
-  implicit val encoder: jzon.Encoder[MinSumsOfProducts] = jzon.Encoder.derived
-  implicit val decoder: jzon.Decoder[MinSumsOfProducts] = jzon.Decoder.derived
+// Sum of Products (OR (AND ...) ...)
+case class SofP(values: List[List[Cube]])
+object SofP {
+  // disk format for multi-output SofP that uses a common dictionary for the bitsets
+  // the nested lists are: channel -> sum -> product -> cube
+  //
+  // note that the least significant output bit is index 0 i.e. the reverse of
+  // the truth table ordering.
+  case class Storage(
+    symbols: Map[CubeSym, Cube],
+    sums_of_products: List[List[List[CubeSym]]]
+  )
+  object Storage {
+    implicit val encoder: jzon.Encoder[Storage] = jzon.Encoder.derived
+    implicit val decoder: jzon.Decoder[Storage] = jzon.Decoder.derived
+
+    def create(mins: List[SofP]): Storage = {
+      val symbols = mins.flatMap(_.values.flatten).distinct.zip(CubeSym.alpha).toMap
+      val lookup = symbols.map(_.swap).to(TreeMap)
+      val outputs = mins.map(_.values.map(_.map(symbols(_))))
+      Storage(lookup, outputs)
+    }
+  }
 }
 
 // Local Variables:

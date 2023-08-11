@@ -6,7 +6,10 @@ ThisBuild / scalaVersion := "2.13.11"
 
 libraryDependencies += "com.fommil" %% "jzon" % "1.1.0"
 
-scalacOptions += "-Ywarn-unused"
+scalacOptions ++= Seq(
+  "-Ywarn-unused",
+  "-deprecation"
+)
 
 assembly / assemblyOutputPath := file(s"${name.value}.jar")
 assemblyMergeStrategy := {

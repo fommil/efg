@@ -10,10 +10,10 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.ArraySeq
+import scala.collection.immutable.{ ArraySeq, BitSet }
 
-import mccluskey.{ Bits, MinSumsOfProducts }
-import mccluskey.MinSum._
+import logic.Logic
+import mccluskey.{ Cube, SofP }
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -22,46 +22,28 @@ object Main {
     require(in.isFile(), s"$in must exist")
     val input = Files.readString(in.toPath, UTF_8)
 
-    val mins = jzon.Decoder[MinSumsOfProducts].decodeJson(input) match {
+    val mins = jzon.Decoder[SofP.Storage].decodeJson(input) match {
       case Left(err) => throw new IllegalArgumentException(err)
       case Right(as) => as
     }
 
-    val input_size = mins.symbols.head._2.values.length
-    val all_inputs = (0 until input_size).foldLeft(List(List.empty[Option[Boolean]])) {
-      case (acc, _) => acc.map(Some(true) :: _) ++ acc.map(Some(false) :: _)
-    }.map(bs => Bits(bs.to(ArraySeq))).reverse
+    val input_size = mins.symbols.head._2.length
+    def all_inputs = (0 until (1 << input_size)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
 
-    val trues = mins.sums_of_products.map { channel =>
-      // any of the sums is fine, they all evaluate to the same. when
-      // evaluating, we treat each product as a combination of ORs, the dual of
-      // how the minsums are actually constructed.
-      val logic = Or(channel.head.map(s => Leaf(mins.symbols(s))))
-
-      // // debugging
-      // System.out.println("     | " + logic)
-      // all_inputs.foreach { row =>
-      //   var s = row.render + " |  "
-      //   logic.entries.foreach { l =>
-      //     if (l.eval(row)) s += "1"
-      //     else s += "0"
-      //     s += "      "
-      //   }
-      //   System.out.println(s)
-      // }
-
+    val trues = mins.sums_of_products.map { out =>
+      val logic = Logic.Or(out.head.map(mins.symbols(_)).map(_.asLogic))
       all_inputs.filter(logic.eval(_)).toSet
     }
 
     all_inputs.foreach { row =>
-      val truth = trues.map(_.contains(row))
+      val truth = trues.map(_.contains(row)) // TODO convert to BitSet
       if (truth.exists(identity)) {
-        val input = row.render.mkString(" ")
+        val input = Cube(row, input_size)
         if (truth.lengthCompare(1) == 0) {
           System.out.println(input)
         } else {
-          val output = truth.map(t => if (t) '1' else '0').mkString(" ")
-          System.out.println(input + " | " + output)
+          val output = Cube(truth.map(Option(_)).to(ArraySeq))
+          System.out.println(input.render + " | " + output.render)
         }
       }
     }

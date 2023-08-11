@@ -8,5 +8,5 @@ cd "$SCRIPT_DIR"
 sbt assembly
 
 for f in tests/*.truth ; do
-  java -cp electronics.jar mccluskey.Main "$f" "${f%.*}.minsums.json" > "${f%.*}.minsums"
+  java -cp electronics.jar mccluskey.Main "$f" > "${f%.*}.minsums.json"
 done
