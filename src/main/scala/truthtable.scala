@@ -38,11 +38,11 @@ object Main {
     all_inputs.foreach { row =>
       val truth = trues.map(_.contains(row)) // TODO convert to BitSet
       if (truth.exists(identity)) {
-        val input = Cube(row, input_size)
+        val input = Cube.from(row, input_size)
         if (truth.lengthCompare(1) == 0) {
           System.out.println(input)
         } else {
-          val output = Cube(truth.map(Option(_)).to(ArraySeq))
+          val output = Cube.from(truth.map(Option(_)).to(ArraySeq))
           System.out.println(input.render + " | " + output.render)
         }
       }

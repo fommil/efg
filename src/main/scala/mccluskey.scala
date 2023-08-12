@@ -224,28 +224,30 @@ object Main {
 // Many research papers use the verbose x_{1}x_{3}' notation.
 final class Cube private(
   // Array doesn't have a sensible equals, so use ArraySeq
-  private val values: ArraySeq[Option[Boolean]] // TODO optimise memory usage
+  // Memory could be optimised further by using Char instead of a sealed trait
+  private val values: ArraySeq[Cube.Bit]
 ) extends AnyVal {
+  import Cube.Bit
 
   def length: Int = values.length
 
-  def pterm(i: Int): Boolean = values(i) == Some(true)
-  def dterm(i: Int): Boolean = values(i).isEmpty
-  def dterms: Boolean = values.exists(_.isEmpty)
+  def pterm(i: Int): Boolean = values(i) == Bit.True
+  def dterm(i: Int): Boolean = values(i) == Bit.DontCare
+  def dterms: Boolean = values.exists(_ == Bit.DontCare)
 
   // fill all the dontcare holes of this to obtain fully populated instances
   def fill: List[Cube] = {
-    values.foldLeft(List(ArraySeq.empty[Boolean])) {
-      case (acc, Some(t)) => acc.map(_ :+ t)
-      case (acc, None) => acc.map(_ :+ true) ++ acc.map(_ :+ false)
-    }.map(bools => Cube(bools.map(Option(_))))
+    values.foldLeft(List(ArraySeq.empty[Bit])) {
+      case (acc, Bit.DontCare) => acc.map(_ :+ Bit.True) ++ acc.map(_ :+ Bit.False)
+      case (acc, other) => acc.map(_ :+ other)
+    }.map(Cube(_))
   }
 
   def render: String =  {
     val input = values.reverse.map {
-      case None => '-'
-      case Some(true) => '1'
-      case Some(false) => '0'
+      case Bit.DontCare => '-'
+      case Bit.True => '1'
+      case Bit.False => '0'
     }
     input.mkString
   }
@@ -254,9 +256,8 @@ final class Cube private(
   def subsetOf(that: Cube): Boolean =
     (this.values.length == that.values.length) && {
       values.zip(that.values).forall {
-        case (Some(a), Some(b)) => a == b
-        case (_, None) => true
-        case _ => false
+        case (_, Bit.DontCare) => true
+        case (a, b) => a == b
       }
     }
 
@@ -270,15 +271,17 @@ final class Cube private(
   // does not check for compatibility, always guard with canMerge
   def merge(that: Cube): Cube = Cube {
     values.zip(that.values).map {
-      case (Some(a), Some(b)) if a == b => Some(a)
-      case _ => None
+      case (Bit.True, Bit.True) => Bit.True
+      case (Bit.False, Bit.False) => Bit.False
+      case _ => Bit.DontCare
     }
   }
 
   def asLogic: Logic = {
     val and = Logic.And(values.zipWithIndex.toList.flatMap {
-      case (None, _) => None
-      case (Some(t), i) => Some(if (t) Logic.In(i) else Logic.Inv(Logic.In(i)))
+      case (Bit.DontCare, _) => None
+      case (Bit.True, i) => Some(Logic.In(i))
+      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i)))
     })
     if (length == 1) and.entries.head
     else and
@@ -287,21 +290,36 @@ final class Cube private(
   override def toString = render
 }
 object Cube {
-  val ONE = Cube(ArraySeq(Some(true)))
+  val ONE = Cube(ArraySeq(Bit.True))
 
-  def apply(bs: BitSet, length: Int): Cube = Cube {
-    (0 until length).map(b => Some(bs.contains(b))).to(ArraySeq)
+  sealed trait Bit
+  object Bit {
+    def apply(o: Option[Boolean]): Bit = o match {
+      case Some(true) => True
+      case Some(false) => False
+      case None => DontCare
+    }
+
+    case object True extends Bit
+    case object False extends Bit
+    case object DontCare extends Bit
   }
-  def apply(values: ArraySeq[Option[Boolean]]) = {
+
+  def apply(values: ArraySeq[Bit]): Cube = {
     require(values.nonEmpty)
     new Cube(values)
   }
+  def from(bs: BitSet, length: Int): Cube = apply {
+    (0 until length).map(b => Bit(Some(bs.contains(b)))).to(ArraySeq)
+  }
+  def from(values: ArraySeq[Option[Boolean]]): Cube =
+    apply(values.map(Bit(_)))
 
   def parse(s: String): Either[String, Cube] = {
     val bits = s.replace(" ", "").map {
-      case '1' => Some(true)
-      case '0' => Some(false)
-      case 'x' | 'X' | '-' => None
+      case '1' => Bit.True
+      case '0' => Bit.False
+      case 'x' | 'X' | '-' => Bit.DontCare
       case c => return Left(s"unexpected character '$c'")
     }.to(ArraySeq).reverse
     if (bits.isEmpty) Left("unexpected empty bits")
