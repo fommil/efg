@@ -1,6 +1,6 @@
 # Example from https://en.wikipedia.org/wiki/Quine%E2%80%93McCluskey_algorithm
 # which contains d-terms (i.e. don't cares). The standard answer without
-# considering d-terms isx
+# considering d-terms is
 #
 # A = 1-11
 # B = -100

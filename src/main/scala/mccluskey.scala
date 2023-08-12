@@ -398,17 +398,16 @@ case class PofS (ors: List[List[Cube]]) {
   //               A + (A . B) = A
   // distribution: A . (B + C) = (A . B) + (A . C)
   def minimise: SofP = SofP {
-    // TODO try using tail/head here as initial conditions and investigate why
-    // it doesn't work (we must not be filtering enough!)
-    ors.foldLeft(List.empty[List[Cube]]) {
-      case (sop, or) =>
+    // FIXME check the TableI results
+    // FIXME (possibly related) check why .sortBy changes the results (should just be perf)
+    val ors_ = ors.map(_.distinct).sortBy(_.length)
+    ors_.tail.foldLeft(List(ors_.head)) {
+      case (acc, or) =>
         // TODO intersect is inefficient
-        val overlap = sop.filter(_.intersect(or).nonEmpty)
+        val overlap = acc.filter(_.intersect(or).nonEmpty)
         if (overlap.nonEmpty) overlap
-        else or.flatMap { c =>
-          if (sop.isEmpty) List(List(c))
-          else sop.map(c :: _)
-        }
+        else if (acc.isEmpty) List(or)
+        else or.flatMap { c => acc.map(c :: _) }
     }
   }
 
