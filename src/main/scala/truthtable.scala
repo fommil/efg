@@ -10,7 +10,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, BitSet }
+import scala.collection.immutable.BitSet
 
 import logic.Logic
 import mccluskey.{ Cube, SofP }
@@ -30,19 +30,22 @@ object Main {
     val input_size = mins.symbols.head._2.length
     def all_inputs = (0 until (1 << input_size)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
 
+    val output_size = mins.sums_of_products.length
     val trues = mins.sums_of_products.map { out =>
       val logic = Logic.Or(out.head.map(mins.symbols(_)).map(_.asLogic))
       all_inputs.filter(logic.eval(_)).toSet
     }
 
     all_inputs.foreach { row =>
-      val truth = trues.map(_.contains(row)) // TODO convert to BitSet
-      if (truth.exists(identity)) {
+      val truth = trues.zipWithIndex.foldLeft(BitSet()) {
+        case (bits, (t, i)) => if (t.contains(row)) bits + i else bits
+      }
+      if (truth.nonEmpty) {
         val input = Cube.from(row, input_size)
-        if (truth.lengthCompare(1) == 0) {
-          System.out.println(input)
+        if (output_size == 1) {
+          System.out.println(input.render)
         } else {
-          val output = Cube.from(truth.map(Option(_)).to(ArraySeq))
+          val output = Cube.from(truth, output_size)
           System.out.println(input.render + " | " + output.render)
         }
       }

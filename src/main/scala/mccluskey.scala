@@ -309,11 +309,9 @@ object Cube {
     require(values.nonEmpty)
     new Cube(values)
   }
-  def from(bs: BitSet, length: Int): Cube = apply {
-    (0 until length).map(b => Bit(Some(bs.contains(b)))).to(ArraySeq)
+  def from(bs: BitSet, width: Int): Cube = apply {
+    (0 until width).map(b => Bit(Some(bs.contains(b)))).to(ArraySeq)
   }
-  def from(values: ArraySeq[Option[Boolean]]): Cube =
-    apply(values.map(Bit(_)))
 
   def parse(s: String): Either[String, Cube] = {
     val bits = s.replace(" ", "").map {
@@ -400,7 +398,8 @@ case class PofS (ors: List[List[Cube]]) {
   //               A + (A . B) = A
   // distribution: A . (B + C) = (A . B) + (A . C)
   def minimise: SofP = SofP {
-    // TODO try using tail/head here as initial conditions
+    // TODO try using tail/head here as initial conditions and investigate why
+    // it doesn't work (we must not be filtering enough!)
     ors.foldLeft(List.empty[List[Cube]]) {
       case (sop, or) =>
         // TODO intersect is inefficient
