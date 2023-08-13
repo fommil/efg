@@ -392,14 +392,23 @@ case class Term(
 case class PofS (ors: List[List[Cube]]) {
   require(ors.nonEmpty)
 
-  // idempotency:  A . A = A
-  //               A + A = A
-  // absorption:   A . (A + B) = A
-  //               A + (A . B) = A
-  // distribution: A . (B + C) = (A . B) + (A . C)
+  // There isn't enough information to define what the true minimum is. For
+  // example it may be the smallest number of cubes or the least number of bit
+  // comparisons (with a higher, but shared, weight applied to inversions). We
+  // aggressively eliminate as many cubes as possible, branching when there is a
+  // choice to be made, and hope that we end up with a very small set of minimal
+  // Sums of Products that contain the true minimum.
+  //
+  // 1. de-dupe aggressively by idempotency: A . A = A ; A + A = A.
+  //
+  // 2. factor out all the single-symbol (necessary) products by commutativity
+  //    and eliminate from the remainder by absorption: A . (A + B) = A.
+  //
+  // 3. in the remainder, find the cube(s) that appear the most, and use as the
+  //    next factor, branching when there are multiple choices. Eliminate and repeat,
+  //    until the remainder is empty.
   def minimise: SofP = SofP {
-    // FIXME check the TableI results
-    // FIXME (possibly related) check why .sortBy changes the results (should just be perf)
+    // FIXME update this algorithm to match the description
     val ors_ = ors.map(_.distinct).sortBy(_.length)
     ors_.tail.foldLeft(List(ors_.head)) {
       case (acc, or) =>
