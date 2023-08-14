@@ -204,15 +204,10 @@ object Main {
   // this is the novel thing that McCluskey did in his paper that filled in gaps
   // in Quine52 and those that came before him (McColl, Blake, etc).
   def prime_sums(primes: List[Term]): PofS = {
-    val labels = primes.flatMap(_.labels).to(TreeSet).toList
-
-    val logic = PofS(labels.map { label =>
-      val rows = primes.filter(_.labels contains label).map(t => t.inputs)
-      assert(rows.nonEmpty)
-      rows
+    val labels = primes.flatMap(_.labels).toSet
+    PofS(labels.map { label =>
+      primes.filter(_.labels contains label).map(t => t.inputs).toSet
     })
-
-    logic
   }
 
 }
@@ -223,8 +218,9 @@ object Main {
 //
 // Many research papers use the verbose x_{1}x_{3}' notation.
 final class Cube private(
-  // Array doesn't have a sensible equals, so use ArraySeq
-  // Memory could be optimised further by using Char instead of a sealed trait
+  // Array doesn't have a sensible equals, so use ArraySeq Memory could be
+  // optimised further by using two BitSets (pterms, dterms) and even further by
+  // a custom BitSet limited to 64 bits.
   private val values: ArraySeq[Cube.Bit]
 ) extends AnyVal {
   import Cube.Bit
@@ -389,8 +385,9 @@ case class Term(
 // that although the (DeMorgan) complement is a Sum of Products it may result in
 // a separate set of Cubes and is not (usually) minimal, and therefore not of
 // interest here.
-case class PofS (ors: List[List[Cube]]) {
+case class PofS(ors: Set[Set[Cube]]) {
   require(ors.nonEmpty)
+  require(ors.forall(_.nonEmpty))
 
   // There isn't enough information to define what the true minimum is. For
   // example it may be the smallest number of cubes or the least number of bit
@@ -399,31 +396,44 @@ case class PofS (ors: List[List[Cube]]) {
   // choice to be made, and hope that we end up with a very small set of minimal
   // Sums of Products that contain the true minimum.
   //
-  // 1. de-dupe aggressively by idempotency: A . A = A ; A + A = A.
+  // 1. de-dupe using Set structures, by idempotency: A . A = A ; A + A = A.
   //
-  // 2. factor out all the single-symbol (necessary) products by commutativity
+  // 2. obtain all the single-symbol (necessary) factors by commutativity
   //    and eliminate from the remainder by absorption: A . (A + B) = A.
   //
   // 3. in the remainder, find the cube(s) that appear the most, and use as the
   //    next factor, branching when there are multiple choices. Eliminate and repeat,
   //    until the remainder is empty.
   def minimise: SofP = SofP {
-    // FIXME update this algorithm to match the description
-    val ors_ = ors.map(_.distinct).sortBy(_.length)
-    ors_.tail.foldLeft(List(ors_.head)) {
-      case (acc, or) =>
-        // TODO intersect is inefficient
-        val overlap = acc.filter(_.intersect(or).nonEmpty)
-        if (overlap.nonEmpty) overlap
-        else if (acc.isEmpty) List(or)
-        else or.flatMap { c => acc.map(c :: _) }
+    def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
+      // intersect.isEmpty could be optimised
+      val others = remain.filter(_.intersect(factors).isEmpty)
+      if (others.isEmpty) Set(factors)
+      else {
+        // most frequent symbol calc could be optimised
+        val counts = others.foldLeft(Map.empty[Cube, Int].withDefaultValue(0) ) {
+          case (acc_, cs) => cs.foldLeft(acc_) {
+            case (acc, c) => acc + (c -> (acc(c) + 1))
+          }
+        }.toSet
+        val max = counts.maxBy(_._2)._2
+        counts.flatMap { case (c, size) =>
+          if (size != max) Set.empty
+          else rec(factors + c, others)
+        }
+      }
     }
+
+    val (nfactors, nremain) = ors.partitionMap {
+      cs: Set[Cube] => if (cs.size == 1) Left(cs.head) else Right(cs)
+    }
+    rec(nfactors, nremain)
   }
 
 }
 
 // Sum of Products (OR (AND ...) ...)
-case class SofP(values: List[List[Cube]])
+case class SofP(values: Set[Set[Cube]])
 object SofP {
   // disk format for multi-output SofP that uses a common dictionary for the bitsets
   // the nested lists are: channel -> sum -> product -> cube
@@ -441,7 +451,7 @@ object SofP {
     def create(mins: List[SofP]): Storage = {
       val symbols = mins.flatMap(_.values.flatten).distinct.zip(CubeSym.alpha).toMap
       val lookup = symbols.map(_.swap).to(TreeMap)
-      val outputs = mins.map(_.values.map(_.map(symbols(_))))
+      val outputs = mins.map(_.values.map(_.map(symbols(_)).toList).toList)
       Storage(lookup, outputs)
     }
   }
