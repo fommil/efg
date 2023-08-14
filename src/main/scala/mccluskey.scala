@@ -404,6 +404,8 @@ case class PofS(ors: Set[Set[Cube]]) {
   // 3. in the remainder, find the cube(s) that appear the most, and use as the
   //    next factor, branching when there are multiple choices. Eliminate and repeat,
   //    until the remainder is empty.
+  //
+  // 4. remove results that are supersets of any other result
   def minimise: SofP = SofP {
     def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
       val others = remain.filter(!overlaps(_, factors))
@@ -426,7 +428,9 @@ case class PofS(ors: Set[Set[Cube]]) {
     val (nfactors, nremain) = ors.partitionMap {
       cs: Set[Cube] => if (cs.size == 1) Left(cs.head) else Right(cs)
     }
-    rec(nfactors, nremain)
+
+    val results = rec(nfactors, nremain)
+    results.filterNot(res => results.exists(t => (t ne res) && t.subsetOf(res)) )
   }
 
   // missing from the stdlib, equivalent to a1.intersects(a2).nonEmpty
