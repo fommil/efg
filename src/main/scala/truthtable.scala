@@ -27,8 +27,8 @@ object Main {
       case Right(as) => as
     }
 
-    val input_size = mins.symbols.head._2.length
-    def all_inputs = (0 until (1 << input_size)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
+    val input_width = mins.symbols.head._2.length
+    def all_inputs = Cube.bitsets(input_width)
 
     val output_size = mins.sums_of_products.length
     val trues = mins.sums_of_products.map { out =>
@@ -41,7 +41,7 @@ object Main {
         case (bits, (t, i)) => if (t.contains(row)) bits + i else bits
       }
       if (truth.nonEmpty) {
-        val input = Cube.from(row, input_size)
+        val input = Cube.from(row, input_width)
         if (output_size == 1) {
           System.out.println(input.render)
         } else {

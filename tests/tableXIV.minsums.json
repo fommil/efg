@@ -1,7 +1,11 @@
 {
   "symbols" : {
-    "A" : "-101",
-    "B" : "-110"
+    "A" : "--00",
+    "B" : "--11",
+    "C" : "-0--",
+    "D" : "-101",
+    "E" : "-110"
   },
-  "sums_of_products" : [[["A", "B"]]]
+  "sums_of_products" : [[["D", "E"]]],
+  "sums_of_products_inv" : [[["A", "B", "C"]]]
 }

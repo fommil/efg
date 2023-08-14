@@ -4,9 +4,9 @@
 // and anything after a # are ignored. Non-empty rows must have the same number
 // of columns.
 //
-// Input and output columns are separated by a pipe '|' character. If there is
-// no pipe on a row then it will be treated as input bits with a single output
-// column having value '1'.
+// In and out columns are separated by a pipe '|' character. If there is no pipe
+// on a row then it will be treated as input bits with a single output column
+// having value '1'.
 //
 // Missing rows are treated as having 0 in the output column.
 //
@@ -14,7 +14,9 @@
 // label instead of an automatically generated symbol based on the input bits,
 // useful for debugging against literature based examples.
 //
-// Outputs the minimal sum of prime implicants to stdout in JSON format.
+// Outputs the minimal sum of prime implicants to stdout in JSON format, along
+// with the mimimal sum of prime implicants for the inverted output (which can
+// sometimes be more efficient).
 //
 // The interpretation of the output is such that each sum of products is a
 // complement of the circuit that recovers the truth table. For example 'A.B.C'
@@ -38,7 +40,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, BitSet, TreeMap, TreeSet }
+import scala.collection.immutable.{ ArraySeq, BitSet, ListMap, TreeSet }
 
 import jzon.syntax._
 import logic.Logic
@@ -53,27 +55,44 @@ object Main {
 
     val input = Files.readString(in.toPath, UTF_8)
 
-    // TODO output the inverted outputs as well, which can be more efficient.
-
     val canon = canonical_representation(input)
     // System.out.println(canon.map(_._1).mkString("\n"))
 
-    val output_length = canon.head._2.length
+    val input_width = canon.head._1.inputs.length
+    val output_width = canon.head._2.length
 
-    val mins = (0 until output_length).map { i =>
-      val primes = prime_implicants(canon, i)
-      // System.out.println(prime_implicant_table(primes))
-      prime_sums(primes).minimise
+    val canon_lookup = canon.map {
+      case (term, output) => term.inputs -> (term.labels, output)
+    }.toMap
+    val inverse = Cube.all(input_width).flatMap { cube =>
+      // invert all the outputs, don't include zeros, keep dterms
+      canon_lookup.get(cube) match {
+        case Some((labels, output)) =>
+          val out = output.invert
+          if (out.zero) None
+          else Some(Term(cube, labels) -> out)
+        case None =>
+          val out = Cube.ones(output_width)
+          val num = Integer.parseInt(cube.render, 2).toString
+          Some(Term(cube, TreeSet(num)) -> out)
+      }
     }.toList
 
+    val (mins, mins_inv) = (0 until output_width).map { i =>
+      val primes = prime_implicants(canon, i)
+      val iprimes = prime_implicants(inverse, i)
+      (prime_sums(primes).minimise, prime_sums(iprimes).minimise)
+    }.toList.unzip
+
     // shared across all the outputs
-    val out = SofP.Storage.create(mins)
+    val out = SofP.Storage.create(mins, mins_inv)
     System.out.println(out.toJsonPretty)
   }
 
   // construct the canonical representation (including d-terms) from the user's
   // .truth table along with each row's output Cube. If the user provided rows
-  // with zero output they will be included here.
+  // with zero output they will be included here. The Terms contain fully
+  // populated input Cubes at this point.
   def canonical_representation(s: String): List[(Term, Cube)] = {
     val rows = s
       .split("\n").toList
@@ -85,7 +104,7 @@ object Main {
             // successful parseCube are guaranteed non-empty by the regexp
             val in = Cube.parse(input).toOption.get
             val out: Cube = {
-              if (output eq null) Cube.ONE
+              if (output eq null) Cube.ones(1)
               else Cube.parse(output.tail) match {
                 case Right(bits) => bits
                 case Left(err) => throw new IllegalArgumentException(err)
@@ -239,6 +258,14 @@ final class Cube private(
     }.map(Cube(_))
   }
 
+  def invert: Cube = Cube(values.map {
+    case Bit.DontCare => Bit.DontCare
+    case Bit.True => Bit.False
+    case Bit.False => Bit.True
+  })
+
+  def zero: Boolean = values.forall(_ == Bit.False)
+
   def render: String =  {
     val input = values.reverse.map {
       case Bit.DontCare => '-'
@@ -286,8 +313,6 @@ final class Cube private(
   override def toString = render
 }
 object Cube {
-  val ONE = Cube(ArraySeq(Bit.True))
-
   sealed trait Bit
   object Bit {
     def apply(o: Option[Boolean]): Bit = o match {
@@ -319,6 +344,11 @@ object Cube {
     if (bits.isEmpty) Left("unexpected empty bits")
     else Right(Cube(bits))
   }
+
+  def ones(width: Int): Cube = Cube(ArraySeq.fill(width)(Bit.True))
+
+  def all(width: Int): Seq[Cube] = bitsets(width).map(bs => from(bs, width))
+  def bitsets(width: Int): Seq[BitSet] = (0 until (1 << width)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
 
   implicit val encoder: jzon.Encoder[Cube] = jzon.Encoder[String].contramap(_.render)
   implicit val decoder: jzon.Decoder[Cube] = jzon.Decoder[String].emap(parse(_))
@@ -441,7 +471,10 @@ case class PofS(ors: Set[Set[Cube]]) {
 }
 
 // Sum of Products (OR (AND ...) ...)
-case class SofP(values: Set[Set[Cube]])
+case class SofP(values: Set[Set[Cube]]) {
+  def symbolic(lookup: Map[Cube, CubeSym]): List[List[CubeSym]] =
+    values.map(_.toList.sortBy(_.render).map(lookup(_))).toList.sortBy(_.length)
+}
 object SofP {
   // disk format for multi-output SofP that uses a common dictionary for the bitsets
   // the nested lists are: channel -> sum -> product -> cube
@@ -450,17 +483,27 @@ object SofP {
   // the truth table ordering.
   case class Storage(
     symbols: Map[CubeSym, Cube],
-    sums_of_products: List[List[List[CubeSym]]]
+    sums_of_products: List[List[List[CubeSym]]],
+    sums_of_products_inv: List[List[List[CubeSym]]],
   )
   object Storage {
     implicit val encoder: jzon.Encoder[Storage] = jzon.Encoder.derived
     implicit val decoder: jzon.Decoder[Storage] = jzon.Decoder.derived
 
-    def create(mins: List[SofP]): Storage = {
-      val symbols = mins.flatMap(_.values.flatten).distinct.zip(CubeSym.alpha).toMap
-      val lookup = symbols.map(_.swap).to(TreeMap)
-      val outputs = mins.map(_.values.map(_.map(symbols(_)).toList).toList)
-      Storage(lookup, outputs)
+    def create(mins: List[SofP], mins_inv: List[SofP]): Storage = {
+      val symbols_ = (mins ++ mins_inv)
+        .flatMap(_.values.flatten)
+        .distinct
+        .sortBy(_.render)
+        .zip(CubeSym.alpha)
+      val symbols = symbols_.toMap
+      val lookup = symbols_.map(_.swap).to(ListMap)
+
+      Storage(
+        lookup,
+        mins.map(_.symbolic(symbols)),
+        mins_inv.map(_.symbolic(symbols))
+      )
     }
   }
 }
