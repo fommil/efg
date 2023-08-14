@@ -9,6 +9,6 @@
     "G" : "10-",
     "H" : "111"
   },
-  "sums_of_products" : [[["A", "E", "F"], ["B", "C", "G"], ["A", "B", "C", "F"], ["A", "B", "E", "G"], ["C", "E", "F", "G"]]],
+  "sums_of_products" : [[["B", "C", "G"], ["A", "E", "F"], ["A", "B", "E", "G"], ["C", "E", "F", "G"], ["A", "B", "C", "F"]]],
   "sums_of_products_inv" : [[["D", "H"]]]
 }

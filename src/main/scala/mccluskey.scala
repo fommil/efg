@@ -250,7 +250,11 @@ final class Cube private(
 
   def pterm(i: Int): Boolean = values(i) == Bit.True
   def dterm(i: Int): Boolean = values(i) == Bit.DontCare
+
+  def pterms: Int = values.count(_ != Bit.DontCare)
   def dterms: Boolean = values.exists(_ == Bit.DontCare)
+
+  def zterms: Seq[Int] = values.zipWithIndex.filter(_._1 == Bit.False).map(_._2)
 
   // fill all the dontcare holes of this to obtain fully populated instances
   def fill: List[Cube] = {
@@ -352,7 +356,14 @@ object Cube {
   def all(width: Int): Seq[Cube] = bitsets(width).map(bs => from(bs, width))
   def bitsets(width: Int): Seq[BitSet] = (0 until (1 << width)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
 
-  // TODO a small cost function for Set[Cube] based on basic transistor count for OR, AND, INV
+  // very simple cost function roughly the BJT transistor count in a direct
+  // implementation of this as 2-level logic with inverter sharing.
+  def cost(cubes: Set[Cube]): Int = {
+    val or = if (cubes.size == 1) 0 else cubes.size
+    val ands = cubes.map(c => if (c.pterms == 1) 0 else c.pterms).sum
+    val invs = cubes.flatMap(_.zterms).size
+    or + ands + invs
+  }
 
   implicit val encoder: jzon.Encoder[Cube] = jzon.Encoder[String].contramap(_.render)
   implicit val decoder: jzon.Decoder[Cube] = jzon.Decoder[String].emap(parse(_))
@@ -450,8 +461,11 @@ case class PofS(ors: Set[Set[Cube]]) {
 
 // Sum of Products (OR (AND ...) ...)
 case class SofP(values: Set[Set[Cube]]) {
+  // we also take the liberty of ordering the output by the minimal cost
+  // function to increase the likelihood that downstream consumers can get
+  // decent results by truncation.
   def symbolic(lookup: Map[Cube, CubeSym]): List[List[CubeSym]] =
-    values.map(_.toList.sortBy(_.render).map(lookup(_))).toList.sortBy(_.length)
+    values.toList.sortBy(Cube.cost(_)).map(_.toList.sortBy(_.render).map(lookup(_)))
 }
 object SofP {
   // disk format for multi-output SofP that uses a common dictionary for the bitsets
