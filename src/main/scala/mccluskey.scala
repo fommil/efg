@@ -406,8 +406,7 @@ case class PofS(ors: Set[Set[Cube]]) {
   //    until the remainder is empty.
   def minimise: SofP = SofP {
     def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
-      // intersect.isEmpty could be optimised
-      val others = remain.filter(_.intersect(factors).isEmpty)
+      val others = remain.filter(!overlaps(_, factors))
       if (others.isEmpty) Set(factors)
       else {
         // most frequent symbol calc could be optimised
@@ -430,6 +429,11 @@ case class PofS(ors: Set[Set[Cube]]) {
     rec(nfactors, nremain)
   }
 
+  // missing from the stdlib, equivalent to a1.intersects(a2).nonEmpty
+  private def overlaps[A](a1: Set[A], a2: Set[A]): Boolean = {
+    a1.foreach(a1_ => a2.foreach(a2_ => if (a1_ == a2_) return true))
+    false
+  }
 }
 
 // Sum of Products (OR (AND ...) ...)
