@@ -145,7 +145,7 @@ object Main {
     // than term, but this seems conceptually easier to understand.
     def step(as: List[Term], bs: List[Term]): (List[Term], List[Term]) = {
       // assertions can be removed when we're confident that bugs have been found
-      assert(as.intersect(bs).isEmpty, s"duplicate terms in intersect: $as $bs")
+      assert(!Util.overlaps(as, bs), s"duplicate terms in intersect: $as $bs")
       assert(as.distinct.length == as.length, s"duplicate terms in a: $as")
       assert(bs.distinct.length == bs.length, s"duplicate terms in b: $bs")
 
@@ -179,7 +179,7 @@ object Main {
 
     val dontcares = dterms.flatMap(_.labels).toSet
     repr.flatMap { t =>
-      if (t.labels.intersect(dontcares).isEmpty) Some(t)
+      if (!Util.overlaps(t.labels, dontcares)) Some(t)
       else {
         val t_ = t.copy(labels = t.labels diff dontcares)
         if (t_.labels.isEmpty) None
@@ -479,7 +479,6 @@ object SofP {
 }
 
 object Util {
-  // TODO use this everywhere instead of intersects
   // missing from the stdlib, equivalent to a1.intersects(a2).nonEmpty
   def overlaps[A](a1: Iterable[A], a2: Iterable[A]): Boolean = {
     a1.foreach(a1_ => a2.foreach(a2_ => if (a1_ == a2_) return true))
