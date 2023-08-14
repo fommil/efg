@@ -115,12 +115,12 @@ object Main {
         input.toBitSet match {
           case Some(bs) => (bs, output) :: acc
           case None =>
-            val excluded = acc.map(_._1) // TODO filter to subsets of input
+            val excluded = acc.map(_._1)
             val vrows = input.fill.diff(excluded).map(_ -> output)
             // zero values must be retained to restrict later dontcares
-            vrows.reverse ::: acc
+            vrows ::: acc
         }
-    }.reverse
+    }
     assert(terms.map(_._1).distinct.length == terms.length, "labels must be unique")
     terms
   }
@@ -261,15 +261,6 @@ final class Cube private(
     }
     input.mkString
   }
-
-  // aka fully covered by that
-  def subsetOf(that: Cube): Boolean =
-    (this.values.length == that.values.length) && {
-      values.zip(that.values).forall {
-        case (_, Bit.DontCare) => true
-        case (a, b) => a == b
-      }
-    }
 
   def canMerge(that: Cube): Boolean = {
     val alts = values.zip(that.values).filter {
