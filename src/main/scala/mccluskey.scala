@@ -10,6 +10,8 @@
 //
 // Missing rows are treated as having 0 in the output column.
 //
+// TODO delete custom label support and use a generated bitset instead.
+//
 // Rows may start with @label (followed by whitespace) which will be used as the
 // label instead of an automatically generated symbol based on the input bits,
 // useful for debugging against literature based examples.
@@ -350,6 +352,8 @@ object Cube {
   def all(width: Int): Seq[Cube] = bitsets(width).map(bs => from(bs, width))
   def bitsets(width: Int): Seq[BitSet] = (0 until (1 << width)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
 
+  // TODO a small cost function for Set[Cube] based on basic transistor count for OR, AND, INV
+
   implicit val encoder: jzon.Encoder[Cube] = jzon.Encoder[String].contramap(_.render)
   implicit val decoder: jzon.Decoder[Cube] = jzon.Decoder[String].emap(parse(_))
 }
@@ -419,46 +423,20 @@ case class PofS(ors: Set[Set[Cube]]) {
   require(ors.nonEmpty)
   require(ors.forall(_.nonEmpty))
 
-  // There isn't enough information to define what the true minimum is. For
-  // example it may be the smallest number of cubes or the least number of bit
-  // comparisons (with a higher, but shared, weight applied to inversions). We
-  // aggressively eliminate as many cubes as possible, branching when there is a
-  // choice to be made, and hope that we end up with a very small set of minimal
-  // Sums of Products that contain the true minimum.
-  //
-  // 1. de-dupe using Set structures, by idempotency: A . A = A ; A + A = A.
-  //
-  // 2. obtain all the single-symbol (necessary) factors by commutativity
-  //    and eliminate from the remainder by absorption: A . (A + B) = A.
-  //
-  // 3. in the remainder, find the cube(s) that appear the most, and use as the
-  //    next factor, branching when there are multiple choices. Eliminate and repeat,
-  //    until the remainder is empty.
-  //
-  // 4. remove results that are supersets of any other result
   def minimise: SofP = SofP {
     def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
       val others = remain.filter(!overlaps(_, factors))
       if (others.isEmpty) Set(factors)
-      else {
-        // most frequent symbol calc could be optimised
-        val counts = others.foldLeft(Map.empty[Cube, Int].withDefaultValue(0) ) {
-          case (acc_, cs) => cs.foldLeft(acc_) {
-            case (acc, c) => acc + (c -> (acc(c) + 1))
-          }
-        }.toSet
-        val max = counts.maxBy(_._2)._2
-        counts.flatMap { case (c, size) =>
-          if (size != max) Set.empty
-          else rec(factors + c, others)
-        }
+      else others.head.flatMap { c =>
+        // it is possible to apply a greedy heuristic to find the factor that
+        // appears the most, but it is possible to miss the true minimum.
+        rec(factors + c, others.tail)
       }
     }
 
     val (nfactors, nremain) = ors.partitionMap {
       cs: Set[Cube] => if (cs.size == 1) Left(cs.head) else Right(cs)
     }
-
     val results = rec(nfactors, nremain)
     results.filterNot(res => results.exists(t => (t ne res) && t.subsetOf(res)) )
   }

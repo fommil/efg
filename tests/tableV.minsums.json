@@ -16,5 +16,5 @@
     "N" : "111-1"
   },
   "sums_of_products" : [[["A", "F", "I", "L", "N"], ["E", "F", "I", "L", "N"]]],
-  "sums_of_products_inv" : [[["B", "C", "G", "H", "J", "M"], ["B", "C", "D", "G", "J", "M"], ["C", "D", "G", "J", "K", "M"]]]
+  "sums_of_products_inv" : [[["B", "C", "D", "G", "J", "M"], ["C", "D", "G", "J", "K", "M"], ["B", "C", "G", "H", "J", "M"]]]
 }
