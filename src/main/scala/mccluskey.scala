@@ -10,12 +10,6 @@
 //
 // Missing rows are treated as having 0 in the output column.
 //
-// TODO delete custom label support and use a generated bitset instead.
-//
-// Rows may start with @label (followed by whitespace) which will be used as the
-// label instead of an automatically generated symbol based on the input bits,
-// useful for debugging against literature based examples.
-//
 // Outputs the minimal sum of prime implicants to stdout in JSON format, along
 // with the mimimal sum of prime implicants for the inverted output (which can
 // sometimes be more efficient).
@@ -42,13 +36,13 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, BitSet, ListMap, TreeSet }
+import scala.collection.immutable.{ ArraySeq, BitSet, ListMap }
 
 import jzon.syntax._
 import logic.Logic
 
 object Main {
-  private val RowPattern = "^(@[_a-zA-Z0-9]+)?([ 01xX]+)([|][ 01xX]+)?$".r
+  private val RowPattern = "^([ 01xX]+)([|][ 01xX]+)?$".r
 
   def main(args: Array[String]): Unit = {
     require(args.length == 1, "an input file must be provided")
@@ -60,29 +54,25 @@ object Main {
     val canon = canonical_representation(input)
     // System.out.println(canon.map(_._1).mkString("\n"))
 
-    val input_width = canon.head._1.inputs.length
+    val input_width = canon.flatMap(_._1.lastOption).max + 1
     val output_width = canon.head._2.length
 
-    val canon_lookup = canon.map {
-      case (term, output) => term.inputs -> (term.labels, output)
-    }.toMap
-    val inverse = Cube.all(input_width).flatMap { cube =>
+    val canon_lookup = canon.toMap
+    val inverse = Cube.bitsets(input_width).flatMap { bs =>
       // invert all the outputs, don't include zeros, keep dterms
-      canon_lookup.get(cube) match {
-        case Some((labels, output)) =>
+      canon_lookup.get(bs) match {
+        case Some(output) =>
           val out = output.invert
-          if (out.zero) None
-          else Some(Term(cube, labels) -> out)
+          if (out.zero) None else Some(bs -> out)
         case None =>
           val out = Cube.ones(output_width)
-          val num = Integer.parseInt(cube.render, 2).toString
-          Some(Term(cube, TreeSet(num)) -> out)
+          Some(bs -> out)
       }
     }.toList
 
     val (mins, mins_inv) = (0 until output_width).map { i =>
-      val primes = prime_implicants(canon, i)
-      val iprimes = prime_implicants(inverse, i)
+      val primes = prime_implicants(canon, i, input_width)
+      val iprimes = prime_implicants(inverse, i, input_width)
       (prime_sums(primes).minimise, prime_sums(iprimes).minimise)
     }.toList.unzip
 
@@ -93,16 +83,15 @@ object Main {
 
   // construct the canonical representation (including d-terms) from the user's
   // .truth table along with each row's output Cube. If the user provided rows
-  // with zero output they will be included here. The Terms contain fully
-  // populated input Cubes at this point.
-  def canonical_representation(s: String): List[(Term, Cube)] = {
+  // with zero output they will be included here.
+  def canonical_representation(s: String): List[(BitSet, Cube)] = {
     val rows = s
       .split("\n").toList
       .flatMap { line =>
         val row = line.split("#").applyOrElse(0, (_: Int) => "")
         if (row.trim.isEmpty) None
         else row match {
-          case RowPattern(label_, input, output) =>
+          case RowPattern(input, output) =>
             // successful parseCube are guaranteed non-empty by the regexp
             val in = Cube.parse(input).toOption.get
             val out: Cube = {
@@ -112,38 +101,27 @@ object Main {
                 case Left(err) => throw new IllegalArgumentException(err)
               }
             }
-            val label =
-              if (label_ ne null) label_.tail
-              else if (in.dterms) "" // will be replaced later
-              else java.lang.Integer.parseInt(in.render, 2).toString
-            Some(Term(in, TreeSet(label)) -> out)
+            Some(in -> out)
         }
       }
 
-    require(rows.map(_._1.inputs.length).distinct.length == 1, "inputs must have the same length")
+    require(rows.map(_._1.length).distinct.length == 1, "inputs must have the same length")
     require(rows.map(_._2.length).distinct.length == 1, "outputs must have the same length")
     require(rows.map(_._1).distinct.length == rows.map(_._1).length, "inputs must be unique")
 
-    // expand out input dontcares into explicit rows
-    val terms = rows.foldLeft(List.empty[(Term, Cube)]) {
-      case (seen, row@(term, outputs)) =>
-        if (!term.inputs.dterms) row :: seen
-        else {
-          val excluded = seen.map(_._1.inputs).filter(_.subsetOf(term.inputs))
-          val expanded = term.inputs.fill
-          val label_base = term.labels.head
-
-          val vrows = expanded.diff(excluded).map {
-            case vrow =>
-              val num = Integer.parseInt(vrow.render, 2).toString
-              val label = if (label_base.isEmpty) num else s"${label_base}.${num}"
-              Term(vrow, TreeSet(label)) -> outputs
-          }
-          vrows.reverse ::: seen
+    // expand input dontcares into explicit bitsets, which is ordering dependent
+    val terms = rows.foldLeft(List.empty[(BitSet, Cube)]) {
+      case (acc, (input, output)) =>
+        input.toBitSet match {
+          case Some(bs) => (bs, output) :: acc
+          case None =>
+            val excluded = acc.map(_._1) // TODO filter to subsets of input
+            val vrows = input.fill.diff(excluded).map(_ -> output)
+            // zero values must be retained to restrict later dontcares
+            vrows.reverse ::: acc
         }
     }.reverse
-
-    require(terms.flatMap(_._1.labels).distinct.length == terms.length, "labels must be unique")
+    assert(terms.map(_._1).distinct.length == terms.length, "labels must be unique")
     terms
   }
 
@@ -151,9 +129,13 @@ object Main {
   // note that p-terms and d-terms (don't cares) are treated the same to get to
   // the most minimal representation, but then d-terms are filtered out since
   // they are not needed in minimisation.
-  def prime_implicants(terms_outputs: List[(Term, Cube)], index: Int): List[Term] = {
-    val pterms = terms_outputs.filter(_._2.pterm(index)).map(_._1)
-    val dterms = terms_outputs.filter(_._2.dterm(index)).map(_._1)
+  def prime_implicants(rows: List[(BitSet, Cube)], index: Int, input_width: Int): List[Term] = {
+    val rows_ = rows.map {
+      case (row, out) => Term(Cube.from(row, input_width), Set(row)) -> out
+    }
+
+    val pterms = rows_.filter(_._2.pterm(index)).map(_._1)
+    val dterms = rows_.filter(_._2.dterm(index)).map(_._1)
 
     // performs a single sweep of the first list of terms against themselves and
     // the second list, returning newly merged terms followed by those that were
@@ -176,14 +158,13 @@ object Main {
         if a canMerge b
       } yield (a, b)
 
-      // we can arrive at merged results through multiple paths, but always at the
-      // same step of the iteration, so we must distinct by the _.bits
+      // we can arrive at merged results through multiple paths, but always at
+      // the same step of the iteration, so we must distinct by the input bits.
       val eliminated = mergeable.flatMap { case (a, b) => List(a, b) }.distinct
       val merged = mergeable.map { case (a, b) => a merge b }.distinctBy(_.inputs)
 
       // the diff here should be using .bits as the comparison, but since new
-      // terms only enter from merging it is not strictly needed. Distinct here is
-      // just to avoid duplicate checks.
+      // terms only enter from merging it is not strictly needed.
       val unchanged = combined diff eliminated
       (merged, unchanged)
     }
@@ -196,7 +177,7 @@ object Main {
 
     if (dterms.isEmpty) return repr
 
-    val dontcares = dterms.flatMap(_.labels).to(TreeSet)
+    val dontcares = dterms.flatMap(_.labels).toSet
     repr.flatMap { t =>
       if (t.labels.intersect(dontcares).isEmpty) Some(t)
       else {
@@ -210,7 +191,7 @@ object Main {
   // for debugging
   def prime_implicant_table(primes: List[Term]): String = {
     val b = new java.lang.StringBuffer
-    val labels = primes.flatMap(_.labels).to(TreeSet)
+    val labels = primes.flatMap(_.labels).toSet
     primes.foreach { prime =>
       b.append(prime.inputs.render)
       b.append(" ")
@@ -239,9 +220,9 @@ object Main {
 //
 // Many research papers use the verbose x_{1}x_{3}' notation.
 final class Cube private(
-  // Array doesn't have a sensible equals, so use ArraySeq Memory could be
-  // optimised further by using two BitSets (pterms, dterms) and even further by
-  // a custom BitSet limited to 64 bits.
+  // Array doesn't have a sensible equals, so use ArraySeq. Memory could be
+  // optimised further by using two BitSets (pterms, dterms) and a width (since
+  // Scala's BitSet is unbounded).
   private val values: ArraySeq[Cube.Bit]
 ) extends AnyVal {
   import Cube.Bit
@@ -256,13 +237,13 @@ final class Cube private(
 
   def zterms: Seq[Int] = values.zipWithIndex.filter(_._1 == Bit.False).map(_._2)
 
-  // fill all the dontcare holes of this to obtain fully populated instances
-  def fill: List[Cube] = {
-    values.foldLeft(List(ArraySeq.empty[Bit])) {
+  // fill all the dontcare holes of this to obtain fully populated BitSets
+  def fill: List[BitSet] = {
+    values.foldLeft(List(ArraySeq.empty[Cube.Bit])) {
       case (acc, Bit.DontCare) => acc.map(_ :+ Bit.True) ++ acc.map(_ :+ Bit.False)
       case (acc, other) => acc.map(_ :+ other)
-    }.map(Cube(_))
-  }
+    }
+  }.flatMap(Cube(_).toBitSet)
 
   def invert: Cube = Cube(values.map {
     case Bit.DontCare => Bit.DontCare
@@ -303,6 +284,12 @@ final class Cube private(
       case (Bit.True, Bit.True) => Bit.True
       case (Bit.False, Bit.False) => Bit.False
       case _ => Bit.DontCare
+    }
+  }
+
+  def toBitSet: Option[BitSet] = if (dterms) None else Some {
+    values.zipWithIndex.foldLeft(BitSet.empty) {
+      case (acc, (v, i)) => if (v == Bit.True) acc + i else acc
     }
   }
 
@@ -404,13 +391,9 @@ object CubeSym {
 }
 
 // a potential prime implicant, derived from one or more p-terms or d-terms
-//
-// String labels are useful for debugging but this could be swapped out to be
-// the Integer value of the input bits to save memory and be a bit more
-// efficient (could use bitset in that case instead of TreeSet).
 case class Term(
   inputs: Cube,
-  labels: TreeSet[String]
+  labels: Set[BitSet] // or a set of indexes, however you prefer
 ) {
   require(labels.nonEmpty)
 
@@ -418,7 +401,7 @@ case class Term(
   def merge(that: Term): Term = Term(inputs.merge(that.inputs), labels ++ that.labels)
 
   def render: String = {
-    val indexes = labels.mkString("(", ", ", ")")
+    val indexes = labels.map(_.toBitMask.head).mkString("(", ",", ")")
     s"${inputs.render} $indexes"
   }
 
@@ -436,7 +419,7 @@ case class PofS(ors: Set[Set[Cube]]) {
 
   def minimise: SofP = SofP {
     def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
-      val others = remain.filter(!overlaps(_, factors))
+      val others = remain.filter(ss => !Util.overlaps(ss, factors))
       if (others.isEmpty) Set(factors)
       else others.head.flatMap { c =>
         // it is possible to apply a greedy heuristic to find the factor that
@@ -452,11 +435,6 @@ case class PofS(ors: Set[Set[Cube]]) {
     results.filterNot(res => results.exists(t => (t ne res) && t.subsetOf(res)) )
   }
 
-  // missing from the stdlib, equivalent to a1.intersects(a2).nonEmpty
-  private def overlaps[A](a1: Set[A], a2: Set[A]): Boolean = {
-    a1.foreach(a1_ => a2.foreach(a2_ => if (a1_ == a2_) return true))
-    false
-  }
 }
 
 // Sum of Products (OR (AND ...) ...)
@@ -497,6 +475,15 @@ object SofP {
         mins_inv.map(_.symbolic(symbols))
       )
     }
+  }
+}
+
+object Util {
+  // TODO use this everywhere instead of intersects
+  // missing from the stdlib, equivalent to a1.intersects(a2).nonEmpty
+  def overlaps[A](a1: Iterable[A], a2: Iterable[A]): Boolean = {
+    a1.foreach(a1_ => a2.foreach(a2_ => if (a1_ == a2_) return true))
+    false
   }
 }
 
