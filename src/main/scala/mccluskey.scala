@@ -443,10 +443,25 @@ object SofP {
   // note that the least significant output bit is index 0 i.e. the reverse of
   // the truth table ordering.
   case class Storage(
+    // TODO document the dterms, which may be useful later
+    // TODO input / output sizes (redundant but useful)
     symbols: Map[CubeSym, Cube],
     sums_of_products: List[List[List[CubeSym]]],
     sums_of_products_inv: List[List[List[CubeSym]]],
-  )
+  ) {
+    require(sums_of_products.length == sums_of_products_inv.length)
+
+    // each channel provides a list of candidate logics
+    def asLogic: List[List[Logic]] = (sums_of_products.zip(sums_of_products_inv)).map {
+      case (out, iout) =>
+        def conv(soln: List[CubeSym]): Logic = {
+          val ors = soln.map { c => symbols(c).asLogic }
+          if (ors.length == 1) ors.head
+          else Logic.Or(ors)
+        }
+        out.map(conv(_)) ++ iout.map(s => Logic.Inv(conv(s)))
+    }
+  }
   object Storage {
     implicit val encoder: jzon.Encoder[Storage] = jzon.Encoder.derived
     implicit val decoder: jzon.Decoder[Storage] = jzon.Decoder.derived

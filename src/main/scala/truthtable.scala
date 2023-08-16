@@ -12,7 +12,6 @@ import java.nio.file.Files
 
 import scala.collection.immutable.BitSet
 
-import logic.Logic
 import mccluskey.{ Cube, SofP }
 
 object Main {
@@ -31,8 +30,8 @@ object Main {
     def all_inputs = Cube.bitsets(input_width)
 
     val output_size = mins.sums_of_products.length
-    val trues = mins.sums_of_products.map { out =>
-      val logic = Logic.Or(out.head.map(mins.symbols(_)).map(_.asLogic))
+    val trues = mins.asLogic.map { out =>
+      val logic = out.head // only need to consider one
       all_inputs.filter(logic.eval(_)).toSet
     }
 
