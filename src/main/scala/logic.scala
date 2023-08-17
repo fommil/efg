@@ -113,6 +113,7 @@ sealed trait Logic {
       // should really find if there is anything common between the "other"s and
       // extract, but since we're focussing on applying this only to 2-level
       // logic, we don't care for now.
+      // FIXME (a + b)·(a + c)·(b + c) is needed, we can get there by deMorgan
       val remain = other.filterNot {
         case Or(ors) => Util.overlaps(ors, tops)
         case _ => false
