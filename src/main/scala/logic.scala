@@ -12,6 +12,7 @@ import Logic._
 
 // TODO rule: ~A·~B + A·B => XNOR
 //      rule: A.~B + ~A.B => XOR
+// (check) A.B + A.C + B.C => ??? at least 2 trues
 
 // TODO XOR expansion (c.f. Brayton90)
 // TODO Triangles (c.f. Brayton90)
@@ -180,7 +181,7 @@ object Main {
 
     // output some really simple deduped gate counts (not really a cost)
     // this only works for 2 outputs, make it general
-    val List(as, bs) = mins.asLogic
+    val List(as, bs) = mins.asLogic.reverse // reverse to match the file format
     for {
       a <- as
       b <- bs
