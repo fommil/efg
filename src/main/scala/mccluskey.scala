@@ -26,10 +26,11 @@
 // use heuristic approaches to find a smaller set of sum of products that are
 // highly likely to contain the globally optimal minimum.
 //
-// The 2-level logic form that is output here is usually has the shortest
-// critical path, since it is maximally parallel, but is woefully inefficient in
-// terms of number of gates. Therefore, the next step in practical circuit
-// design is typically Multilevel Logic Synthesis.
+// The 2-level logic form that is output usually has the shortest critical path
+// (for the AND/OR logic step, not counting inversion), since it is maximally
+// parallel, but is woefully inefficient in terms of number of gates. Therefore,
+// the next step in practical circuit design is typically Multilevel Logic
+// Synthesis.
 package mccluskey
 
 import java.io.File
@@ -51,10 +52,9 @@ object Main {
 
     val input = Files.readString(in.toPath, UTF_8)
 
-    val canon = canonical_representation(input)
+    val (input_width, canon) = canonical_representation(input)
+    // System.out.println(input_width)
     // System.out.println(canon.map(_._1).mkString("\n"))
-
-    val input_width = canon.flatMap(_._1.lastOption).max + 1
     val output_width = canon.head._2.length
 
     val canon_lookup = canon.toMap
@@ -77,14 +77,14 @@ object Main {
     }.toList.unzip
 
     // shared across all the outputs
-    val out = SofP.Storage.create(mins, mins_inv)
+    val out = SofP.Storage.create(input_width, mins, mins_inv)
     System.out.println(out.toJsonPretty)
   }
 
   // construct the canonical representation (including d-terms) from the user's
   // .truth table along with each row's output Cube. If the user provided rows
   // with zero output they will be included here.
-  def canonical_representation(s: String): List[(BitSet, Cube)] = {
+  def canonical_representation(s: String): (Int, List[(BitSet, Cube)]) = {
     val rows = s
       .split("\n").toList
       .flatMap { line =>
@@ -122,7 +122,10 @@ object Main {
         }
     }
     assert(terms.map(_._1).distinct.length == terms.length, "labels must be unique")
-    terms
+
+    // bitsets don't hold their width, so we have to provide it explicitly.
+    // we could return cubes for inputs, but that doesn't capture the density.
+    (rows.head._1.length, terms)
   }
 
   // calculates the unique prime implicants from the canonical representation
@@ -284,14 +287,12 @@ final class Cube private(
     }
   }
 
-  def asLogic: Logic = {
-    val and = Logic.And(values.zipWithIndex.toList.flatMap {
+  def asLogic: Logic = Logic.And {
+    values.zipWithIndex.flatMap {
       case (Bit.DontCare, _) => None
       case (Bit.True, i) => Some(Logic.In(i))
       case (Bit.False, i) => Some(Logic.Inv(Logic.In(i)))
-    })
-    if (length == 1) and.entries.head
-    else and
+    }.toSet
   }
 
   override def toString = render
@@ -362,16 +363,7 @@ object CubeSym {
   implicit val encoder: jzon.FieldEncoder[CubeSym] = jzon.FieldEncoder[String].contramap(_.value)
   implicit val decoder: jzon.FieldDecoder[CubeSym] = jzon.FieldDecoder[String].map(CubeSym(_))
 
-  def alpha: LazyList[CubeSym] = LazyList.from(1).map { i_ =>
-    val buf = new java.lang.StringBuffer
-    var i = i_
-    while (i > 0) {
-      val rem = (i - 1) % 26
-      buf.append(('A' + rem).toChar)
-      i = (i - rem) / 26
-    }
-    CubeSym(buf.reverse.toString)
-  }
+  def alpha: LazyList[CubeSym] = Util.alpha.map(CubeSym(_))
 
   def render(symbols: Map[Cube, CubeSym]): String = {
     val pad = symbols.values.map(_.value.length).max
@@ -443,9 +435,10 @@ object SofP {
   // note that the least significant output bit is index 0 i.e. the reverse of
   // the truth table ordering.
   case class Storage(
-    // TODO document the dterms, which may be useful later
-    // TODO input / output sizes (redundant but useful)
+    input_width: Int,
+    output_width: Int,
     symbols: Map[CubeSym, Cube],
+    // dterms: List[Cube], // TODO (no need to use syms for these)
     sums_of_products: List[List[List[CubeSym]]],
     sums_of_products_inv: List[List[List[CubeSym]]],
   ) {
@@ -455,9 +448,7 @@ object SofP {
     def asLogic: List[List[Logic]] = (sums_of_products.zip(sums_of_products_inv)).map {
       case (out, iout) =>
         def conv(soln: List[CubeSym]): Logic = {
-          val ors = soln.map { c => symbols(c).asLogic }
-          if (ors.length == 1) ors.head
-          else Logic.Or(ors)
+          Logic.Or(soln.map { c => symbols(c).asLogic }.toSet)
         }
         out.map(conv(_)) ++ iout.map(s => Logic.Inv(conv(s)))
     }
@@ -466,7 +457,11 @@ object SofP {
     implicit val encoder: jzon.Encoder[Storage] = jzon.Encoder.derived
     implicit val decoder: jzon.Decoder[Storage] = jzon.Decoder.derived
 
-    def create(mins: List[SofP], mins_inv: List[SofP]): Storage = {
+    def create(
+      input_width: Int,
+      mins: List[SofP],
+      mins_inv: List[SofP]
+    ): Storage = {
       val symbols_ = (mins ++ mins_inv)
         .flatMap(_.values.flatten)
         .distinct
@@ -476,6 +471,8 @@ object SofP {
       val lookup = symbols_.map(_.swap).to(ListMap)
 
       Storage(
+        input_width,
+        mins.length,
         lookup,
         mins.map(_.symbolic(symbols)),
         mins_inv.map(_.symbolic(symbols))
@@ -489,6 +486,17 @@ object Util {
   def overlaps[A](a1: Iterable[A], a2: Iterable[A]): Boolean = {
     a1.foreach(a1_ => a2.foreach(a2_ => if (a1_ == a2_) return true))
     false
+  }
+
+  def alpha: LazyList[String] = LazyList.from(1).map { i_ =>
+    val buf = new java.lang.StringBuffer
+    var i = i_
+    while (i > 0) {
+      val rem = (i - 1) % 26
+      buf.append(('A' + rem).toChar)
+      i = (i - rem) / 26
+    }
+    buf.reverse.toString
   }
 }
 

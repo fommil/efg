@@ -1,4 +1,6 @@
 {
+  "input_width" : 3,
+  "output_width" : 2,
   "symbols" : {
     "A" : "-00",
     "B" : "-11",

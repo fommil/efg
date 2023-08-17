@@ -1,30 +1,44 @@
 package logic
 
+import java.io.File
+import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.Files
+
 import scala.collection.immutable.BitSet
+
+import mccluskey.{ SofP, Util }
+
+import Logic._
+
+// TODO rule: ~A·~B + A·B => XNOR
 
 // TODO XOR expansion (c.f. Brayton90)
 // TODO Triangles (c.f. Brayton90)
 // TODO weak division (find common factors)
 // TODO metarule replacement database
+//      - https://github.com/berkeley-abc/abc
+//      - https://people.eecs.berkeley.edu/~alanmi/publications/
 // TODO visualisation format
 //      - graphviz (won't look like a digital circuit though)
 //      - https://tex.stackexchange.com/questions/32839 (big dependency)
 //      - https://gojs.net/latest/samples/LogicCircuit.html (no positioning)
+//      - https://github.com/nturley/netlistsvg
 sealed trait Logic {
-  import Logic._
-
   // this is a bit rubbish because it doesn't show common nodes.
   final def render(top: Boolean)(show: Int => String): String = this match {
     case In(a) => show(a)
     case Inv(e) => "~" + e.render(false)(show)
-    case And(entries) => entries.map(_.render(false)(show)).mkString(".")
+    case And(entries) => entries.map(_.render(false)(show)).mkString("·")
     case Or(entries) =>
       val parts = entries.map(_.render(false)(show))
       if (top) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
   }
 
-  override final def toString: String = render(false)(_.toString)
+  def render(show: Int => String): String = render(false)(show)
+  def render: String = render(false)(_.toString)
+
+//  override final def toString: String = render(false)(_.toString)
 
   def eval(input: BitSet): Boolean = this match {
     case In(a) => input(a)
@@ -33,33 +47,116 @@ sealed trait Logic {
     case Or(os) => os.exists(_.eval(input))
   }
 
-  // TODO consider all possible factors
-
-  // extracts common factors using a greedy algorithm. This is designed
-  // primarily to work on 2-level OR(AND(...)) logic so it may not produce great
-  // results for deeper logics.
+  // extracts common factors using a greedy algorithm
   def factor: Logic = this match {
     case In(_) => this
     case Inv(a) => Inv(a.factor)
     case And(entries) =>
+      // this is basically PofS in McCluskey, but for a more general AST.
       val (tops, other) = entries.map(_.factor).partitionMap {
         case And(subs) => Left(subs)
         case other => Right(other)
       }
-      // 
-      And(tops.flatten.distinct ++ other)
+      // should really find if there is anything common between the "other"s and
+      // extract, but since we're focussing on applying this only to 2-level
+      // logic, we don't care for now.
+      val remain = other.filterNot {
+        case Or(ors) => Util.overlaps(ors, tops)
+        case _ => false
+      }
+      And(tops.flatten ++ remain)
     case Or(entries) =>
-      //entries.
-      ???
+      val parts = entries.map(_.factor)
+      val (popular, many) = parts.toList.flatMap {
+        case And(es) => es.toList
+        case e => List(e)
+      }.groupBy(identity).map {
+        case (expr, occs) => expr -> occs.size
+      }.maxBy(_._2) // this is the greedy selection
 
+      if (many < 2) {
+        Or(parts)
+      } else {
+        val (factored, uncommon) = parts.partitionMap {
+          case e @ And(es) =>
+            if (es.contains(popular)) Left(And(es - popular)) else Right(e)
+          case e =>
+            if (e == popular) Left(e) else Right(e)
+        }
+
+        val and = And(Set(popular) + Or(factored))
+
+        if (uncommon.isEmpty) and
+        else {
+          Or(uncommon).factor match {
+            case Or(nested) => Or(nested + and)
+            case other => Or(Set(and, other))
+          }
+        }
+      }
   }
 
   def dedupe(nodes: Map[Logic, Logic]): (Logic, Map[Logic, Logic]) = ???
 
 }
 object Logic {
-  case class Inv(entry: Logic) extends Logic
-  case class And(entries: List[Logic]) extends Logic
-  case class Or(entries: List[Logic]) extends Logic
-  case class In(channel: Int) extends Logic
+  case class Inv private(entry: Logic) extends Logic
+  case class And private(entries: Set[Logic]) extends Logic
+  case class Or  private(entries: Set[Logic]) extends Logic
+  case class In  (channel: Int) extends Logic
+
+  object Inv {
+    def apply(e: Logic): Logic = e match {
+      case Inv(ee) => ee
+      case e => new Inv(e)
+    }
+  }
+
+  object And {
+    def apply(entries: Set[Logic]): Logic = {
+      require(entries.nonEmpty)
+      if (entries.size == 1) entries.head
+      else new And(entries)
+    }
+  }
+
+  object Or {
+    def apply(entries: Set[Logic]): Logic = {
+      require(entries.nonEmpty)
+      if (entries.size == 1) entries.head
+      else new Or(entries)
+    }
+  }
+
+  object In {
+
+  }
 }
+
+object Main {
+  def main(args: Array[String]): Unit = {
+    require(args.length >= 1, "an input file must be provided")
+    val in = new File(args(0))
+    require(in.isFile(), s"$in must exist")
+    val input = Files.readString(in.toPath, UTF_8)
+
+    val mins = jzon.Decoder[SofP.Storage].decodeJson(input) match {
+      case Left(err) => throw new IllegalArgumentException(err)
+      case Right(as) => as
+    }
+
+    val syms = Util.alpha.take(mins.input_width).zipWithIndex.map(_.swap).toMap
+
+    mins.asLogic.foreach { out =>
+      val logic = out.head
+      System.out.println("=====")
+      System.out.println(s"RAW    = ${logic.render(syms)}")
+      System.out.println(s"FACTOR = ${logic.factor.render(syms)}")
+    }
+
+  }
+}
+
+// Local Variables:
+// scala-compile-suggestion: "sbt \"runMain logic.Main tests/fulladder.minsums.json\""
+// End:

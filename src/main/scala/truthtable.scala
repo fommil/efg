@@ -26,10 +26,8 @@ object Main {
       case Right(as) => as
     }
 
-    val input_width = mins.symbols.head._2.length
-    def all_inputs = Cube.bitsets(input_width)
+    def all_inputs = Cube.bitsets(mins.input_width)
 
-    val output_size = mins.sums_of_products.length
     val trues = mins.asLogic.map { out =>
       val logic = out.head // only need to consider one
       all_inputs.filter(logic.eval(_)).toSet
@@ -40,11 +38,11 @@ object Main {
         case (bits, (t, i)) => if (t.contains(row)) bits + i else bits
       }
       if (truth.nonEmpty) {
-        val input = Cube.from(row, input_width)
-        if (output_size == 1) {
+        val input = Cube.from(row, mins.input_width)
+        if (mins.output_width == 1) {
           System.out.println(input.render)
         } else {
-          val output = Cube.from(truth, output_size)
+          val output = Cube.from(truth, mins.output_width)
           System.out.println(input.render + " | " + output.render)
         }
       }
