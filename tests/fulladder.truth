@@ -22,8 +22,8 @@
 #
 # i.e.
 #
-# (C . (A v B)) + A . B
-# (A v B) v C
+# (C . (A ^ B)) + A . B
+# (A ^ B) ^ C
 #
 # (XOR may also be replaced with NOR)
 #
