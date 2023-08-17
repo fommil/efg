@@ -178,21 +178,26 @@ object Main {
 
     val syms = Util.alpha.take(mins.input_width).zipWithIndex.map(_.swap).toMap
 
-    var deduped = Map.empty[Logic, Logic]
+    // output some really simple deduped gate counts (not really a cost)
+    // this only works for 2 outputs, make it general
+    val List(as, bs) = mins.asLogic
+    for {
+      a <- as
+      b <- bs
+    } yield {
+      val af = a.factor
+      val bf = b.factor
+      val (_, deduped) = af.dedupe(Map.empty[Logic, Logic])
+      val (_, deduped_) = bf.dedupe(deduped)
 
-    mins.asLogic.foreach { out =>
-      val logic = out.head
-      System.out.println("=====")
-      System.out.println(s"RAW    = ${logic.render(syms)}")
+      // simple gate counting metric
+      val nodes = deduped_.keys.filter {
+        case In(_) => false
+        case _ => true
+      }
 
-      val factored = logic.factor
-      System.out.println(s"FACTOR = ${factored.render(syms)}")
-
-      val (_, deduped_) = factored.dedupe(deduped)
-      deduped = deduped_
-      System.out.println(s"NODES = ${deduped.keys.size}")
+      System.out.println(s"nodes = ${nodes.size} (${af.render(syms)} ; ${bf.render(syms)})")
     }
-
   }
 }
 

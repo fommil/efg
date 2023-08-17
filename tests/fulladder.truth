@@ -17,8 +17,13 @@
 # AND, OR, XOR, NOR and NAND, e.g.
 #
 # tmp = XOR(A, B)
-# S = XOR(tmp, Cin)
 # Co = OR(AND(tmp, Cin), AND(A, B))
+# S = XOR(tmp, Cin)
+#
+# i.e.
+#
+# (C . (A v B)) + A . B
+# (A v B) v C
 #
 # (XOR may also be replaced with NOR)
 #
