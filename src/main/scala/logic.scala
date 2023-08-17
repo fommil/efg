@@ -11,6 +11,7 @@ import mccluskey.{ SofP, Util }
 import Logic._
 
 // TODO rule: ~A·~B + A·B => XNOR
+//      rule: A.~B + ~A.B => XOR
 
 // TODO XOR expansion (c.f. Brayton90)
 // TODO Triangles (c.f. Brayton90)
@@ -38,7 +39,7 @@ sealed trait Logic {
   def render(show: Int => String): String = render(false)(show)
   def render: String = render(false)(_.toString)
 
-//  override final def toString: String = render(false)(_.toString)
+  //  override final def toString: String = render(false)(_.toString)
 
   def eval(input: BitSet): Boolean = this match {
     case In(a) => input(a)
@@ -96,7 +97,37 @@ sealed trait Logic {
       }
   }
 
-  def dedupe(nodes: Map[Logic, Logic]): (Logic, Map[Logic, Logic]) = ???
+  // maybe we should allow this to be mutated...
+  def dedupe(nodes: Map[Logic, Logic]): (Logic, Map[Logic, Logic]) = {
+    def withThis[A](res: (A, Map[Logic, Logic]))(cons: A => Logic): (Logic, Map[Logic, Logic]) = {
+      val node = cons(res._1)
+      (node, res._2 + (node -> node))
+    }
+
+    nodes.get(this) match {
+      case Some(hit) => (hit, nodes)
+      case None => this match {
+        case Inv(e) =>
+          withThis(e.dedupe(nodes))(Inv(_))
+        case And(entries) =>
+          val foo = entries.foldLeft((Set.empty[Logic], nodes)) {
+            case ((es, acc), e) =>
+              val (node, acc_) = e.dedupe(acc)
+              (es + node, acc_ + (node -> node))
+          }
+          withThis(foo)(And(_))
+        case Or(entries) =>
+          val foo = entries.foldLeft((Set.empty[Logic], nodes)) {
+            case ((es, acc), e) =>
+              val (node, acc_) = e.dedupe(acc)
+              (es + node, acc_ + (node -> node))
+          }
+          withThis(foo)(Or(_))
+        case i @ In(_) =>
+          withThis((i, nodes))(identity)
+      }
+    }
+  }
 
 }
 object Logic {
@@ -147,11 +178,19 @@ object Main {
 
     val syms = Util.alpha.take(mins.input_width).zipWithIndex.map(_.swap).toMap
 
+    var deduped = Map.empty[Logic, Logic]
+
     mins.asLogic.foreach { out =>
       val logic = out.head
       System.out.println("=====")
       System.out.println(s"RAW    = ${logic.render(syms)}")
-      System.out.println(s"FACTOR = ${logic.factor.render(syms)}")
+
+      val factored = logic.factor
+      System.out.println(s"FACTOR = ${factored.render(syms)}")
+
+      val (_, deduped_) = factored.dedupe(deduped)
+      deduped = deduped_
+      System.out.println(s"NODES = ${deduped.keys.size}")
     }
 
   }
