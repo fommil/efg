@@ -53,21 +53,21 @@ sealed trait Logic {
     case And(entries) =>
       val (invs, regs) = entries.partitionMap {
         case Inv(e) => Left(e)
-        case e => Right(e)
+        case e => Right(Inv(e))
       }
       if (invs.size > regs.size) {
         // ~A.~B.C = ~(A + B + ~C)
-        Inv(Or(invs ++ regs.map(Inv(_)))).factor
+        Inv(Or(invs ++ regs)).factor
       } else this
 
     case Or(entries) =>
       val (invs, regs) = entries.partitionMap {
         case Inv(e) => Left(e)
-        case e => Right(e)
+        case e => Right(Inv(e))
       }
       if (invs.size > regs.size) {
-        // ~(~A + ~B + C) = A.B.~C
-        Inv(And(invs ++ regs.map(Inv(_)))).factor
+        // ~A + ~B + C = ~(A.B.~C)
+        Inv(And(invs ++ regs)).factor
       } else this
 
     case other => other
@@ -91,14 +91,14 @@ sealed trait Logic {
             case Inv(e) => Left(e)
             case other => Right(other)
           }
-          if (regs.isEmpty) And(invs)
+          if (regs.isEmpty) Or(invs)
           else Inv(a)
         case a@ Or(entries) =>
           val (invs, regs) = entries.partitionMap {
             case Inv(e) => Left(e)
             case other => Right(other)
           }
-          if (regs.isEmpty) Or(invs)
+          if (regs.isEmpty) And(invs)
           else Inv(a)
 
         case other => Inv(other)
@@ -271,7 +271,7 @@ object Main {
         case _ => true
       }
 
-      // FIXME the output is junk, one of the rules is clearly buggy
+      // FIXME the output looks like junk
       System.out.println(s"nodes = ${nodes.size} { ${af.render(syms)} ; ${bf.render(syms)} }")
     }
   }
