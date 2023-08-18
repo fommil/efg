@@ -51,7 +51,8 @@ import java.nio.file.Files
 
 import scala.collection.immutable.BitSet
 
-import mccluskey.{ SofP, Util }
+import fommil.util._
+import mccluskey.SofP
 
 import Logic._
 
@@ -87,23 +88,60 @@ object LocalRule {
     }
   }
 
-  // factor common products and eliminate sums by absorption A.(A + B) = A
+  // factor common products and eliminate by absorption
+  // A.(A + B) = A
+  // A + (A . B) = A
   object Factor extends LocalRule {
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
-        ??? // FIXME implement
+        // trivial eliminations
+        val factored = entries.filterNot {
+          case Or(sums) => sums.exists {
+            case And(es) => entries.overlaps(es)
+            case e => entries.contains(e)
+          }
+          case _ => false
+        }
+
+        val choices = factored.toList.flatMap {
+          case Or(sums) => sums.toList.flatMap {
+            case And(es) => es.toList
+            case e => List(e)
+          }
+          case _ => Nil
+        }.counts
+          .toList
+          .filter(_._2 > 1)
+          .sortBy(-_._2)
+          .map {
+            case (factor, _) =>
+              // similar to trivial eliminations, but only 1 factor
+              val refactored = factored.filterNot {
+                case Or(sums) => sums.exists {
+                  case And(es) => es.contains(factor)
+                  case e => e == factor
+                }
+                case _ => false
+              }
+              And(refactored + factor)
+          }
+
+        if (choices.nonEmpty) choices
+        else if (factored.size < entries.size) List(And(factored))
+        else Nil
+
+        // TODO sum absorption A + (A . B) = A
+        // case Or(entries) =>
 
       case _ => Nil
     }
   }
 
-  // TODO sum absorption A + (A . B) = A
-
   // TODO distribution A + (BC) = (A + B)(A + C)
 
   // TODO deMorgan, minimise Inv in AND/OR nodes
-  //      ~A.~B.C = ~(A + B + ~C) (outer Inv counts less than an inner one)
-  //      ~A + ~B + C = ~(A.B.~C)
+  //      A'.B'.C = (A + B + C')' (outer Inv counts less than an inner one)
+  //      A' + B' + C = (A.B.C')'
 
   // TODO detect and remove dontcares
 
@@ -126,7 +164,7 @@ object GlobalRule {
 sealed trait Logic { self =>
   final def render(top: Boolean)(show: Int => String): String = self match {
     case In(a) => show(a)
-    case Inv(e) => "~" + e.render(false)(show)
+    case Inv(e) => e.render(false)(show) + "'"
     case And(entries) => entries.map(_.render(false)(show)).mkString("·")
     case Or(entries) =>
       val parts = entries.map(_.render(false)(show))
@@ -187,9 +225,17 @@ sealed trait Logic { self =>
 
 }
 object Logic {
+  // constructor enforces involution: (A')' = A
   case class Inv private(entry: Logic) extends Logic
+
+  // structure enforces indempotency A . A = A
+  // constructor enforces identity A . 1 = A
   case class And private(entries: Set[Logic]) extends Logic
+
+  // structure enforces indempotency A + A = A
+  // constructor enforces identity A + 0 = A
   case class Or  private(entries: Set[Logic]) extends Logic
+
   case class In  (channel: Int) extends Logic
 
   object Inv {
@@ -233,7 +279,7 @@ object Main {
       case Right(as) => as
     }
 
-    val _ = Util.alpha
+    val _ = alpha_syms
       .take(design.input_width)
       .map(_.toLowerCase)
       .zipWithIndex

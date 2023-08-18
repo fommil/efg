@@ -39,6 +39,7 @@ import java.nio.file.Files
 
 import scala.collection.immutable.{ ArraySeq, BitSet, ListMap }
 
+import fommil.util._
 import jzon.syntax._
 import logic.Logic
 
@@ -148,7 +149,7 @@ object Main {
     // than term, but this seems conceptually easier to understand.
     def step(as: List[Term], bs: List[Term]): (List[Term], List[Term]) = {
       // assertions can be removed when we're confident that bugs have been found
-      assert(!Util.overlaps(as, bs), s"duplicate terms in intersect: $as $bs")
+      assert(!as.overlaps(bs), s"duplicate terms in intersect: $as $bs")
       assert(as.distinct.length == as.length, s"duplicate terms in a: $as")
       assert(bs.distinct.length == bs.length, s"duplicate terms in b: $bs")
 
@@ -182,7 +183,7 @@ object Main {
 
     val dontcares = dterms.flatMap(_.labels).toSet
     repr.flatMap { t =>
-      if (!Util.overlaps(t.labels, dontcares)) Some(t)
+      if (!t.labels.overlaps(dontcares)) Some(t)
       else {
         val t_ = t.copy(labels = t.labels diff dontcares)
         if (t_.labels.isEmpty) None
@@ -363,7 +364,7 @@ object CubeSym {
   implicit val encoder: jzon.FieldEncoder[CubeSym] = jzon.FieldEncoder[String].contramap(_.value)
   implicit val decoder: jzon.FieldDecoder[CubeSym] = jzon.FieldDecoder[String].map(CubeSym(_))
 
-  def alpha: LazyList[CubeSym] = Util.alpha.map(CubeSym(_))
+  def alpha: LazyList[CubeSym] = alpha_syms.map(CubeSym(_))
 
   def render(symbols: Map[Cube, CubeSym]): String = {
     val pad = symbols.values.map(_.value.length).max
@@ -402,7 +403,7 @@ case class PofS(ors: Set[Set[Cube]]) {
 
   def minimise: SofP = SofP {
     def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
-      val others = remain.filter(ss => !Util.overlaps(ss, factors))
+      val others = remain.filter(ss => !ss.overlaps(factors))
       if (others.isEmpty) Set(factors)
       else others.head.flatMap { c =>
         // it is possible to apply a greedy heuristic to find the factor that
@@ -480,25 +481,6 @@ object SofP {
         mins_inv.map(_.symbolic(symbols))
       )
     }
-  }
-}
-
-object Util {
-  // missing from the stdlib, equivalent to a1.intersects(a2).nonEmpty
-  def overlaps[A](a1: Iterable[A], a2: Iterable[A]): Boolean = {
-    a1.foreach(a1_ => a2.foreach(a2_ => if (a1_ == a2_) return true))
-    false
-  }
-
-  def alpha: LazyList[String] = LazyList.from(1).map { i_ =>
-    val buf = new java.lang.StringBuffer
-    var i = i_
-    while (i > 0) {
-      val rem = (i - 1) % 26
-      buf.append(('A' + rem).toChar)
-      i = (i - rem) / 26
-    }
-    buf.reverse.toString
   }
 }
 
