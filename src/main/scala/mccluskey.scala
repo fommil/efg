@@ -436,9 +436,11 @@ object SofP {
   // the truth table ordering.
   case class Storage(
     input_width: Int,
+    // input_names: List[String],
     output_width: Int,
+    // output_names: List[String],
     symbols: Map[CubeSym, Cube],
-    // dterms: List[Cube], // TODO (no need to use syms for these)
+    // dterms: List[List[Cube]],
     sums_of_products: List[List[List[CubeSym]]],
     sums_of_products_inv: List[List[List[CubeSym]]],
   ) {

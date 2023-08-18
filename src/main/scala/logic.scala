@@ -1,3 +1,48 @@
+// Multi-level combinational logic synthesis. For something more practical, see
+// https://github.com/berkeley-abc/abc/
+// https://people.eecs.berkeley.edu/~alanmi/publications/
+//
+// This code takes inspiration from the research of "Multilevel Logic Synthesis"
+// (Brayton90), "SOCRATES: A System for AutomatiCally Synthesizing and
+// Optimizing Combinational Logic" (Gregory88) by applying metarules. However,
+// those papers are devoid of actual implementable details, so what we do is
+// maintain a list of manual rules that run on the AST of the circuit.
+//
+// TODO Each rule is able to provide a weight of whether it thinks it would be
+// able to help optimise the circuit or not (according to the objective
+// function).
+//
+// TODO We explore the space of possible moves using a form of simulated
+// annealing with a fixed limit of scouts.
+//
+// Simple objective functions may be provided, such as reducing
+//
+// - TODO component count
+// - TODO component cost
+// - TODO power consumption
+// - TODO critical path time
+//
+// For a limited set of logic families, such as
+//
+//   - TODO RTL https://en.wikipedia.org/wiki/Resistor-transistor_logic
+//   - TODO DTL https://en.wikipedia.org/wiki/Diode-transistor_logic
+//   - TODO TTL https://en.wikipedia.org/wiki/Transistor-transistor_logic
+//   - TODO CMOS https://en.wikipedia.org/wiki/CMOS
+//   - TODO Sky130 https://github.com/google/skywater-pdk
+//
+// See https://en.wikipedia.org/wiki/Logic_family for more.
+//
+// The objective functions are incredibly simple and do not fully simulate the
+// circuits so there may be all kinds of power dissipation issues, especially
+// around fan-in and fan-out and do not consider interference (sometimes for the
+// better) such as power-up times of multi-gate components.
+//
+// TODO The output is a netlib using the JSON format described at
+// https://github.com/nturley/netlistsvg which is really only appropriate for
+// visualisation and manual inspection.
+//
+// TODO output formats that can be simulated with SPICE
+// TODO output formats that can
 package logic
 
 import java.io.File
@@ -10,21 +55,6 @@ import mccluskey.{ SofP, Util }
 
 import Logic._
 
-// TODO rule: ~A·~B + A·B => XNOR
-//      rule: A.~B + ~A.B => XOR
-// (check) A.B + A.C + B.C => ??? at least 2 trues
-
-// TODO XOR expansion (c.f. Brayton90)
-// TODO Triangles (c.f. Brayton90)
-// TODO weak division (find common factors)
-// TODO metarule replacement database
-//      - https://github.com/berkeley-abc/abc
-//      - https://people.eecs.berkeley.edu/~alanmi/publications/
-// TODO visualisation format
-//      - graphviz (won't look like a digital circuit though)
-//      - https://tex.stackexchange.com/questions/32839 (big dependency)
-//      - https://gojs.net/latest/samples/LogicCircuit.html (no positioning)
-//      - https://github.com/nturley/netlistsvg
 sealed trait Logic {
   // this is a bit rubbish because it doesn't show common nodes.
   final def render(top: Boolean)(show: Int => String): String = this match {
