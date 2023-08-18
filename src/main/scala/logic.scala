@@ -13,7 +13,7 @@
 // function).
 //
 // TODO We explore the space of possible moves using a form of simulated
-// annealing with a fixed limit of scouts.
+// annealing with a fixed limit of scouts. Rules may be combined in each step.
 //
 // Simple objective functions may be provided, such as reducing
 //
@@ -42,7 +42,7 @@
 // visualisation and manual inspection.
 //
 // TODO output formats that can be simulated with SPICE
-// TODO output formats that can
+// TODO output formats that can be used by other tools
 package logic
 
 import java.io.File
@@ -55,9 +55,24 @@ import mccluskey.{ SofP, Util }
 
 import Logic._
 
-sealed trait Logic {
-  // this is a bit rubbish because it doesn't show common nodes.
-  final def render(top: Boolean)(show: Int => String): String = this match {
+trait LocalRule {
+  def transform(node: Logic): Logic
+}
+object LocalRule {
+
+}
+
+trait GlobalRule {
+  // there is the possibility of work duplication between the "trigger" and
+  // "perform" steps. If that becomes a performance issue, we can make use of
+  // type members to allow the trigger to pass state over to the perform step.
+  def trigger(channels: List[Logic], fan_out: Map[Logic, Int]): List[Logic]
+  def perform(nodes: List[Logic]): Map[Logic, Logic]
+}
+
+// combinatorial logic, cycles are not permitted (caller's responsibility).
+sealed trait Logic { self =>
+  final def render(top: Boolean)(show: Int => String): String = self match {
     case In(a) => show(a)
     case Inv(e) => "~" + e.render(false)(show)
     case And(entries) => entries.map(_.render(false)(show)).mkString("·")
@@ -66,155 +81,48 @@ sealed trait Logic {
       if (top) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
   }
+  final def render(show: Int => String): String = render(true)(show)
+  final def render: String = render(true)(_.toString)
 
-  def render(show: Int => String): String = render(true)(show)
-  def render: String = render(true)(_.toString)
+  // override final def toString: String = render(false)(_.toString)
 
-  //  override final def toString: String = render(false)(_.toString)
-
-  def eval(input: BitSet): Boolean = this match {
+  final def eval(input: BitSet): Boolean = self match {
     case In(a) => input(a)
     case Inv(e) => !e.eval(input)
     case And(as) => as.forall(_.eval(input))
     case Or(os) => os.exists(_.eval(input))
   }
 
-  private def deMorgan: Logic = this match {
-    case And(entries) =>
-      val (invs, regs) = entries.partitionMap {
-        case Inv(e) => Left(e)
-        case e => Right(Inv(e))
-      }
-      if (invs.size > regs.size) {
-        // ~A.~B.C = ~(A + B + ~C)
-        Inv(Or(invs ++ regs)).factor
-      } else this
-
-    case Or(entries) =>
-      val (invs, regs) = entries.partitionMap {
-        case Inv(e) => Left(e)
-        case e => Right(Inv(e))
-      }
-      if (invs.size > regs.size) {
-        // ~A + ~B + C = ~(A.B.~C)
-        Inv(And(invs ++ regs)).factor
-      } else this
-
-    case other => other
-  }
-
-  // NOTE: this is probably a really rubbish approach. What we really want to do
-  // is to create the list of all the unique nodes, and then generate
-  // substitutions that we then search through. This is just blindly applying
-  // rules without any regard for where we are going. But it's useful for
-  // testing.
-  // extracts common factors using a greedy algorithm
-  def factor: Logic = this match {
-    case In(_) => this
-    case Inv(a) =>
-      // this should only flip if *everything* is inverted, to avoid infinite
-      // loops with deMorgans.
-      a.factor match {
-        case Inv(e) => e
-        case a@ And(entries) =>
-          val (invs, regs) = entries.partitionMap {
-            case Inv(e) => Left(e)
-            case other => Right(other)
-          }
-          if (regs.isEmpty) Or(invs)
-          else Inv(a)
-        case a@ Or(entries) =>
-          val (invs, regs) = entries.partitionMap {
-            case Inv(e) => Left(e)
-            case other => Right(other)
-          }
-          if (regs.isEmpty) And(invs)
-          else Inv(a)
-
-        case other => Inv(other)
+  // Replace every node that is equal to the target, recursing into children.
+  //
+  // Does not recurse into the replacement Node
+  final def replace(target: Logic, replacement: Logic): Logic =
+    if (self == target) replacement
+    else {
+      def replace_(entries: Iterable[Logic])(cons: Iterable[Logic] => Logic): Logic = {
+        val entries_ = entries.map { e: Logic =>
+          val replaced = e.replace(target, replacement)
+          (replaced eq e, replaced)
+        }
+        if (entries_.exists(_._1)) cons(entries_.map(_._2))
+        else self
       }
 
-    case And(entries) =>
-      // this is basically PofS in McCluskey, but for a more general AST.
-      val (tops, other) = entries.map(_.factor).partitionMap {
-        case And(subs) => Left(subs)
-        case other => Right(other)
-      }
-      // should really find if there is anything common between the "other"s and
-      // extract, but since we're focussing on applying this only to 2-level
-      // logic, we don't care for now.
-      // FIXME (a + b)·(a + c)·(b + c) is needed, we can get there by deMorgan
-      val remain = other.filterNot {
-        case Or(ors) => Util.overlaps(ors, tops)
-        case _ => false
-      }
-      And(tops.flatten ++ remain).deMorgan
-
-    case Or(entries) =>
-      val parts = entries.map(_.factor)
-      val (popular, many) = parts.toList.flatMap {
-        case And(es) => es.toList
-        case e => List(e)
-      }.groupBy(identity).map {
-        case (expr, occs) => expr -> occs.size
-      }.maxBy(_._2) // this is the greedy selection
-
-      {
-        if (many < 2) {
-          Or(parts)
-        } else {
-          val (factored, uncommon) = parts.partitionMap {
-            case e @ And(es) =>
-              if (es.contains(popular)) Left(And(es - popular)) else Right(e)
-            case e =>
-              if (e == popular) Left(e) else Right(e)
-          }
-
-          val and = And(Set(popular) + Or(factored))
-
-          if (uncommon.isEmpty) and
-          else {
-            Or(uncommon).factor match {
-              case Or(nested) => Or(nested + and)
-              case other => Or(Set(and, other))
-            }
-          }
-        }.deMorgan
-      }
-
-  }
-
-  // maybe we should allow this to be mutated...
-  def dedupe(nodes: Map[Logic, Logic]): (Logic, Map[Logic, Logic]) = {
-    def withThis[A](res: (A, Map[Logic, Logic]))(cons: A => Logic): (Logic, Map[Logic, Logic]) = {
-      val node = cons(res._1)
-      (node, res._2 + (node -> node))
-    }
-
-    nodes.get(this) match {
-      case Some(hit) => (hit, nodes)
-      case None => this match {
+      self match {
         case Inv(e) =>
-          withThis(e.dedupe(nodes))(Inv(_))
+          val replaced = e.replace(target, replacement)
+          if (replaced eq e) self else Inv(replaced)
+
         case And(entries) =>
-          val foo = entries.foldLeft((Set.empty[Logic], nodes)) {
-            case ((es, acc), e) =>
-              val (node, acc_) = e.dedupe(acc)
-              (es + node, acc_ + (node -> node))
-          }
-          withThis(foo)(And(_))
+          replace_(entries)(es => And(es.toSet))
+
         case Or(entries) =>
-          val foo = entries.foldLeft((Set.empty[Logic], nodes)) {
-            case ((es, acc), e) =>
-              val (node, acc_) = e.dedupe(acc)
-              (es + node, acc_ + (node -> node))
-          }
-          withThis(foo)(Or(_))
-        case i @ In(_) =>
-          withThis((i, nodes))(identity)
+          replace_(entries)(es => Or(es.toSet))
+
+        case In(_) => self
       }
     }
-  }
+
 
 }
 object Logic {
@@ -234,17 +142,7 @@ object Logic {
     def apply(entries: Set[Logic]): Logic = {
       require(entries.nonEmpty)
       if (entries.size == 1) entries.head
-      else {
-        // this is a bit much, will backfire when we try to share gates. Maybe
-        // all constructions should be followed by a choice to leave as-is or to
-        // try to unnest.
-        val (nested, not) = entries.partitionMap {
-          case And(es) => Left(es)
-          case other => Right(other)
-        }
-        if (not.isEmpty) new And(nested.flatten)
-        else new And(entries)
-      }
+      else new And(entries)
     }
   }
 
@@ -252,16 +150,7 @@ object Logic {
     def apply(entries: Set[Logic]): Logic = {
       require(entries.nonEmpty)
       if (entries.size == 1) entries.head
-      else {
-        val (nested, not) = entries.partitionMap {
-          case Or(es) => Left(es)
-          case other => Right(other)
-        }
-        if (not.isEmpty)
-          new Or(nested.flatten)
-        else
-          new Or(entries)
-      }
+      else new Or(entries)
     }
   }
 
@@ -271,40 +160,26 @@ object Logic {
 }
 
 object Main {
+
   def main(args: Array[String]): Unit = {
     require(args.length >= 1, "an input file must be provided")
     val in = new File(args(0))
     require(in.isFile(), s"$in must exist")
     val input = Files.readString(in.toPath, UTF_8)
 
-    val mins = jzon.Decoder[SofP.Storage].decodeJson(input) match {
+    val design = jzon.Decoder[SofP.Storage].decodeJson(input) match {
       case Left(err) => throw new IllegalArgumentException(err)
       case Right(as) => as
     }
 
-    val syms = Util.alpha.take(mins.input_width).map(_.toLowerCase).zipWithIndex.map(_.swap).toMap
+    val _ = Util.alpha
+      .take(design.input_width)
+      .map(_.toLowerCase)
+      .zipWithIndex
+      .map(_.swap)
+      .toMap
 
-    // output some really simple deduped gate counts (not really a cost)
-    // this only works for 2 outputs, make it general
-    val List(as, bs) = mins.asLogic.reverse // reverse to match the file format
-    for {
-      a <- as
-      b <- bs
-    } yield {
-      val af = a.factor
-      val bf = b.factor
-      val (_, deduped) = af.dedupe(Map.empty[Logic, Logic])
-      val (_, deduped_) = bf.dedupe(deduped)
-
-      // simple gate counting metric
-      val nodes = deduped_.keys.filter {
-        case In(_) => false
-        case _ => true
-      }
-
-      // FIXME the output looks like junk
-      System.out.println(s"nodes = ${nodes.size} { ${af.render(syms)} ; ${bf.render(syms)} }")
-    }
+    ???
   }
 }
 
