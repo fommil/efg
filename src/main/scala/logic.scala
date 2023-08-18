@@ -56,10 +56,58 @@ import mccluskey.{ SofP, Util }
 import Logic._
 
 trait LocalRule {
-  def transform(node: Logic): Logic
+  // the List implies different choices that could be taken. a convention is for
+  // the most greedy choice to be the head. Nil implies the rule has no action.
+  //
+  // the rule should not apply itself recursively to the node's children, but
+  // may transform multi-level structures.
+  def perform(node: Logic): List[Logic]
 }
 object LocalRule {
+  // unnest nodes of the same type
+  //   A.(B.C) => A.B.C
+  //   (A + B) + (C + D) = A + B + C + D
+  object UnNest extends LocalRule {
+    override def perform(node: Logic): List[Logic] = node match {
+      case And(entries) =>
+        val (nested, other) = entries.partitionMap {
+          case And(es) => Left(es)
+          case es => Right(es)
+        }
+        List(And(nested.flatten ++ other))
 
+      case Or(entries) =>
+        val (nested, other) = entries.partitionMap {
+          case Or(es) => Left(es)
+          case es => Right(es)
+        }
+        List(Or(nested.flatten ++ other))
+
+      case _ => Nil
+    }
+  }
+
+  // factor common products and eliminate sums by absorption A.(A + B) = A
+  object Factor extends LocalRule {
+    def perform(node: Logic): List[Logic] = node match {
+      case And(entries) =>
+        ??? // FIXME implement
+
+      case _ => Nil
+    }
+  }
+
+  // TODO sum absorption A + (A . B) = A
+
+  // TODO distribution A + (BC) = (A + B)(A + C)
+
+  // TODO deMorgan, minimise Inv in AND/OR nodes
+  //      ~A.~B.C = ~(A + B + ~C) (outer Inv counts less than an inner one)
+  //      ~A + ~B + C = ~(A.B.~C)
+
+  // TODO detect and remove dontcares
+
+  // TODO XOR / NAND expansions
 }
 
 trait GlobalRule {
@@ -68,6 +116,10 @@ trait GlobalRule {
   // type members to allow the trigger to pass state over to the perform step.
   def trigger(channels: List[Logic], fan_out: Map[Logic, Int]): List[Logic]
   def perform(nodes: List[Logic]): Map[Logic, Logic]
+}
+object GlobalRule {
+  // TODO split AND / OR gates that have sub-sets that could be shared
+  //      (note that this must be performed after local rules or it can be undone)
 }
 
 // combinatorial logic, cycles are not permitted (caller's responsibility).
@@ -100,9 +152,9 @@ sealed trait Logic { self =>
     if (self == target) replacement
     else {
       def replace_(entries: Iterable[Logic])(cons: Iterable[Logic] => Logic): Logic = {
-        val entries_ = entries.map { e: Logic =>
+        val entries_ = entries.map { e =>
           val replaced = e.replace(target, replacement)
-          (replaced eq e, replaced)
+          (replaced ne e, replaced)
         }
         if (entries_.exists(_._1)) cons(entries_.map(_._2))
         else self
@@ -111,7 +163,7 @@ sealed trait Logic { self =>
       self match {
         case Inv(e) =>
           val replaced = e.replace(target, replacement)
-          if (replaced eq e) self else Inv(replaced)
+          if (replaced ne e) Inv(replaced) else self
 
         case And(entries) =>
           replace_(entries)(es => And(es.toSet))
@@ -123,6 +175,15 @@ sealed trait Logic { self =>
       }
     }
 
+  def nodes: List[Logic] = {
+    def nodes_(es: Iterable[Logic]): List[Logic] = es.toList.flatMap(_.nodes)
+    self match {
+      case Inv(a) => self :: a.nodes
+      case And(entries) => self :: nodes_(entries)
+      case Or(entries) => self :: nodes_(entries)
+      case In(_) => self :: Nil
+    }
+  }
 
 }
 object Logic {
