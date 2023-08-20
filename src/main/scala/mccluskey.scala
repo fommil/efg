@@ -31,6 +31,8 @@
 // parallel, but is woefully inefficient in terms of number of gates. Therefore,
 // the next step in practical circuit design is typically Multilevel Logic
 // Synthesis.
+//
+// TODO characteristic functions for multi-output logic tables
 package mccluskey
 
 import java.io.File

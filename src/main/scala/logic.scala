@@ -94,6 +94,17 @@ object LocalRule {
   object Factor extends LocalRule {
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
+        // TODO break eliminations into their own rule (and force the
+        // application of it at the end of a Factor)
+
+        // TODO have a separate "Optimal Factors" that calculates all
+        // permutations of a factorisation (including iterating over the common
+        // and uncommon remainders) and returns the one factorisation with the
+        // minimal number of terms. Although this can be reached by searching
+        // through the individual factors, it is useful to have this as a single
+        // step choice which can potentially be applied once, from the branches
+        // to the trunk, for a comparison solution.
+
         // trivial eliminations
         val factored = entries.filterNot {
           case Or(sums) => sums.exists {
