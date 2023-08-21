@@ -98,75 +98,77 @@ object LocalRule {
   // A.(A + B) = A
   // A + (A.B) = A
   object Eliminate extends LocalRule {
+    // TODO maybe this is best implemented as a GlobalRule
+
     // The core rule logic exposed for other rules to use directly when there is
-    // an an expected immediate opportunity for elimination.
-    def eliminate(node: Logic): Option[Logic] = node match {
-      case And(entries) =>
-        def rec(or: Or): Boolean = or.entries.exists {
-          case nested: Or => rec(nested)
-          case e => entries.contains(e)
+    // an expected immediate opportunity for elimination.
+    //
+    // We have to recurse all the way to the branches since the common factors
+    // cannot be obtained in the opposite direction. Note that we need to be
+    // careful to track nested AND and ORs separately. For example, A.(B + ((A +
+    // D).C)) (AND(OR(AND(...)))) only eliminates the D in the (A + D) term
+    // to A.C, not A. To achieve this we keep a running record of what the
+    // common sum and products are, so that they can eliminate independently of
+    // each other.
+    def eliminate(node: Logic): Logic = {
+      // .get is safe because we can never get a None from the delegate when the
+      // common factors are empty.
+      val repl = eliminate_(node, Set.empty, Set.empty).get
+      if (repl == node) node else repl // return same instance when possible
+    }
+    // Returns None if the node should be eliminated, otherwise a Some of a
+    // (potentially) reduced tree.
+    private def eliminate_(node: Logic, common_sums: Set[Logic], common_products: Set[Logic]): Option[Logic] = node match {
+      case node: And =>
+        def flatten_factors(and: And): Set[Logic] = and.entries.flatMap {
+          case nested: And => flatten_factors(nested)
+          case e => Set(e)
         }
-        val entries_ =  entries.filterNot {
-          case nested: Or => rec(nested)
-          case _ => false
-        }
-        if (entries_.size == entries.size) None else Some(And(entries_))
+        lazy val common_products_ = common_products ++ flatten_factors(node)
 
-      case Or(entries) =>
-        def rec(and: And): Boolean = and.entries.exists {
-          case nested: And => rec(nested)
-          case e => entries.contains(e)
+        def rec(and: And): Option[Logic] = {
+          val entries_ = and.entries.flatMap {
+            case nested: And => rec(nested)
+            case flip: Or => eliminate_(flip, common_sums, common_products_)
+            case e =>
+              if (common_sums.contains(e)) None
+              else Some(e)
+          }
+          if (entries_.isEmpty) None else Some(And(entries_))
         }
-        val entries_ =  entries.filterNot {
-          case nested: And => rec(nested)
-          case _ => false
+        rec(node)
+
+      case node: Or =>
+        def flatten_factors(or: Or): Set[Logic] = or.entries.flatMap {
+          case nested: Or => flatten_factors(nested)
+          case e => Set(e)
         }
-        if (entries_.size == entries.size) None else Some(Or(entries_))
+        lazy val common_sums_ = common_sums ++ flatten_factors(node)
+
+        def rec(or: Or): Option[Logic] = {
+          val entries_ = or.entries.flatMap {
+            case nested: Or => rec(nested)
+            case flip: And => eliminate_(flip, common_sums_, common_products)
+            case e =>
+              if (common_products.contains(e)) None
+              else Some(e)
+          }
+          if (entries_.isEmpty) None else Some(Or(entries_))
+        }
+        rec(node)
+
+      case Inv(e) =>
+        // this really needs to be tested... flip and invert the factors
+        eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
 
       case _ => None
     }
 
-    // We have to recurse all the way to the branches to do full elimination
-    // because the elimination set filters all the way to the ends. Note that we
-    // need to be careful to track nested AND and ORs separately. For
-    // example, A.(B + ((A + D).C)) (AND(OR(AND(...)))) only eliminates the D in
-    // the (A + D) term to A.C, not A.
-    //
-    // this implements the case where the node is an AND inside an OR, or an OR
-    // inside an AND, and should never be called under any other circumstance.
-    //
-    // Returns None if the node should be eliminated, otherwise a Some of a
-    // (potentially) eliminated tree.
-    private def full_2(node: Logic, common_sums: Set[Logic], common_products: Set[Logic]): Option[Logic] = node match {
-      // case And(entries) => ???
-
-      case node_ @ Or(entries) =>
-        def rec(or: Or): Boolean = or.entries.exists {
-          case nested: Or => rec(nested)
-          case e => common_products.contains(e)
-        }
-        val filtered =  rec(node_)
-        // still need to recurse on the Ands, which is actually full_2... so maybe we don't need mutual recursion
-
-
-        //if (entries_.size == entries.size) None else Some(Or(entries_))
-
-        // TODO need to find all nested ORs, and filter each one where
-        // appropriate, removing it entirely if the set is empty.
-        ???
-
-      case _ => None
+    def perform(node: Logic): List[Logic] = {
+      val node_ = eliminate(node)
+      if (node_ eq node) Nil
+      else List(node_)
     }
-
-    // must only be called for AND/OR that are not inside their complement
-    // (unless both of the common sets are empty, in which case the parents do
-    // not matter).
-    //
-    // Returns None if the node should be eliminated, otherwise a Some of a
-    // (potentially) eliminated tree.
-    private def full_1(node: Logic, and_factors: Set[Logic], or_factors: Set[Logic]): Option[Logic] = ???
-
-    def perform(node: Logic): List[Logic] = eliminate(node).toList
   }
 
   // factor common products by distribution:
@@ -198,7 +200,7 @@ object LocalRule {
           .flatMap {
             case (factor, c) =>
               if (c < 2) None
-              else Eliminate.eliminate(And(entries + factor))
+              else Some(Eliminate.eliminate(And(entries + factor)))
           }
 
       case Or(entries) =>
@@ -214,7 +216,7 @@ object LocalRule {
           .flatMap {
             case (factor, c) =>
               if (c < 2) None
-              else Eliminate.eliminate(Or(entries + factor))
+              else Some(Eliminate.eliminate(Or(entries + factor)))
           }
 
       case _ => Nil
@@ -224,6 +226,12 @@ object LocalRule {
   // TODO deMorgan, minimise Inv in AND/OR nodes
   //      A'.B'.C = (A + B + C')' (outer Inv counts less than an inner one)
   //      A' + B' + C = (A.B.C')'
+
+  // TODO complementation
+  // A + A' = 1
+  // A . A' = 0
+  // it would be good to do this without having to introduce 0 and 1 to the AST.
+  // perhaps include in the elimination rule.
 
   // TODO detect and remove dontcares
 
