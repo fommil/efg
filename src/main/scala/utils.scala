@@ -1,13 +1,23 @@
 package fommil
 
 object util {
-  implicit class IterableOpz[A](private val as: Iterable[A]) extends AnyVal {
+  implicit class SetOpz[A](private val as: Set[A]) extends AnyVal {
     // equivalent to a1.intersects(a2).nonEmpty
-    def overlaps(a2: Iterable[A]): Boolean = {
+    def overlaps(that: Set[A]): Boolean = {
+      as.foreach { as_ => if (that.contains(as_)) return true }
+      false
+    }
+  }
+
+  implicit class ListOpz[A](private val as: List[A]) extends AnyVal {
+    // equivalent to a1.intersects(a2).nonEmpty
+    def overlaps(a2: List[A]): Boolean = {
       as.foreach(as_ => a2.foreach(a2_ => if (as_ == a2_) return true))
       false
     }
+  }
 
+  implicit class IterableOpz[A](private val as: Iterable[A]) extends AnyVal {
     def counts: Map[A, Int] = as.foldLeft(Map.empty[A, Int]) {
       case (acc, a) => acc.updatedWith(a) {
         case Some(c) => Some(c + 1)

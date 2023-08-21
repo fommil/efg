@@ -57,18 +57,21 @@ import mccluskey.SofP
 import Logic._
 
 trait LocalRule {
-  // the List implies different choices that could be taken. a convention is for
-  // the most greedy choice to be the head. Nil implies the rule has no action.
+  // the List implies different choices that could be taken. Nil implies the
+  // rule has no action.
   //
-  // the rule should not apply itself recursively to the node's children, but
-  // may transform multi-level structures.
+  // the rule should not apply itself recursively to the node's children (unless
+  // it cannot be done from multiple indepentent calls) but may transform
+  // multi-level structures.
   def perform(node: Logic): List[Logic]
 }
 object LocalRule {
   // unnest nodes of the same type
-  //   A.(B.C) => A.B.C
-  //   (A + B) + (C + D) = A + B + C + D
+  //   A.(A.B.C) => A.B.C
+  //   (A + B) + (A + C + D) = A + B + C + D
   object UnNest extends LocalRule {
+    // TODO a variant that recurses
+
     override def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
         val (nested, other) = entries.partitionMap {
@@ -88,67 +91,103 @@ object LocalRule {
     }
   }
 
-  // factor common products and eliminate by absorption
+  // Eliminate by absorption
+  //
   // A.(A + B) = A
-  // A + (A . B) = A
-  object Factor extends LocalRule {
-    def perform(node: Logic): List[Logic] = node match {
+  // A + (A.B) = A
+  //
+  // with nesting...
+  //
+  // A.(A + B + (A + C)) = A
+  // A + (A.B.(A.C)) = A
+  object Eliminate extends LocalRule {
+    // TODO fully recursive elimination for less frequent calling (note that it
+    // cannot be constructed from multiple single calls because it needs the
+    // great-grandparent common sets). Note that A.(B + ((A + D).C)) eliminates
+    // to A.C, not A. We need to track AND / OR factors separately.
+
+    // The core rule logic exposed for other rules to use directly when there is
+    // an an expected immediate opportunity for elimination.
+    def eliminate(node: Logic): Option[Logic] = node match {
       case And(entries) =>
-        // TODO break eliminations into their own rule (and force the
-        // application of it at the end of a Factor)
-
-        // TODO have a separate "Optimal Factors" that calculates all
-        // permutations of a factorisation (including iterating over the common
-        // and uncommon remainders) and returns the one factorisation with the
-        // minimal number of terms. Although this can be reached by searching
-        // through the individual factors, it is useful to have this as a single
-        // step choice which can potentially be applied once, from the branches
-        // to the trunk, for a comparison solution.
-
-        // trivial eliminations
-        val factored = entries.filterNot {
-          case Or(sums) => sums.exists {
-            case And(es) => entries.overlaps(es)
-            case e => entries.contains(e)
-          }
+        def rec(or: Or): Boolean = or.entries.exists {
+          case nested: Or => rec(nested)
+          case e => entries.contains(e)
+        }
+        val entries_ =  entries.filterNot {
+          case nested: Or => rec(nested)
           case _ => false
         }
+        if (entries_.size == entries.size) None else Some(And(entries_))
 
-        val choices = factored.toList.flatMap {
-          case Or(sums) => sums.toList.flatMap {
-            case And(es) => es.toList
-            case e => List(e)
-          }
+      case Or(entries) =>
+        def rec(and: And): Boolean = and.entries.exists {
+          case nested: And => rec(nested)
+          case e => entries.contains(e)
+        }
+        val entries_ =  entries.filterNot {
+          case nested: And => rec(nested)
+          case _ => false
+        }
+        if (entries_.size == entries.size) None else Some(Or(entries_))
+
+      case _ => None
+    }
+
+    def perform(node: Logic): List[Logic] = eliminate(node).toList
+  }
+
+  // factor common products by distribution:
+  //
+  //   (A + B)(A + C) = A + (B.C)
+  //   (A.B) + (A.C) = A.(B + C)
+  //
+  // considers all possible factors for an expression.
+  object Factor extends LocalRule {
+    // TODO have a separate "Optimal Factors" that calculates all permutations
+    // of a factorisation (including iterating over the common and uncommon
+    // remainders) and returns the one factorisation with the minimal number of
+    // terms. Although this can be reached by searching through the individual
+    // factors, it is useful to have this as a single step choice which can
+    // potentially be applied once, from the branches to the trunk, for a
+    // comparison solution.
+
+    def perform(node: Logic): List[Logic] = node match {
+      case And(entries) =>
+        def rec(or: Or): List[Logic] = or.entries.toList.flatMap {
+          case nested: Or => rec(nested)
+          case e => List(e)
+        }
+        entries.flatMap {
+          case nested: Or => rec(nested)
           case _ => Nil
         }.counts
           .toList
-          .filter(_._2 > 1)
-          .sortBy(-_._2)
-          .map {
-            case (factor, _) =>
-              // similar to trivial eliminations, but only 1 factor
-              val refactored = factored.filterNot {
-                case Or(sums) => sums.exists {
-                  case And(es) => es.contains(factor)
-                  case e => e == factor
-                }
-                case _ => false
-              }
-              And(refactored + factor)
+          .flatMap {
+            case (factor, c) =>
+              if (c < 2) None
+              else Eliminate.eliminate(And(entries + factor))
           }
 
-        if (choices.nonEmpty) choices
-        else if (factored.size < entries.size) List(And(factored))
-        else Nil
-
-        // TODO sum absorption A + (A . B) = A
-        // case Or(entries) =>
+      case Or(entries) =>
+        def rec(and: And): List[Logic] = and.entries.toList.flatMap {
+          case nested: And => rec(nested)
+          case e => List(e)
+        }
+        entries.flatMap {
+          case nested: And => rec(nested)
+          case _ => Nil
+        }.counts
+          .toList
+          .flatMap {
+            case (factor, c) =>
+              if (c < 2) None
+              else Eliminate.eliminate(Or(entries + factor))
+          }
 
       case _ => Nil
     }
   }
-
-  // TODO distribution A + (BC) = (A + B)(A + C)
 
   // TODO deMorgan, minimise Inv in AND/OR nodes
   //      A'.B'.C = (A + B + C')' (outer Inv counts less than an inner one)
@@ -184,6 +223,13 @@ sealed trait Logic { self =>
   }
   final def render(show: Int => String): String = render(true)(show)
   final def render: String = render(true)(_.toString)
+
+  final def size: Int = self match {
+    case In(_) => 1
+    case Inv(e) => 1 + e.size
+    case And(es) => 1 + es.map(_.size).sum
+    case Or(es) => 1 + es.map(_.size).sum
+  }
 
   // override final def toString: String = render(false)(_.toString)
 
@@ -236,6 +282,8 @@ sealed trait Logic { self =>
 
 }
 object Logic {
+  // TODO caching hashCode may be beneficial to all the Set usage
+
   // constructor enforces involution: (A')' = A
   case class Inv private(entry: Logic) extends Logic
 
