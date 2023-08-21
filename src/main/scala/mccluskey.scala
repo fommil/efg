@@ -293,8 +293,8 @@ final class Cube private(
   def asLogic: Logic = Logic.And {
     values.zipWithIndex.flatMap {
       case (Bit.DontCare, _) => None
-      case (Bit.True, i) => Some(Logic.In(i))
-      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i)))
+      case (Bit.True, i) => Some(Logic.In(i, i.toString))
+      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i, i.toString)))
     }.toSet
   }
 

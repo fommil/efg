@@ -252,20 +252,19 @@ object GlobalRule {
 
 // combinatorial logic, cycles are not permitted (caller's responsibility).
 sealed trait Logic { self =>
-  final def render(top: Boolean)(show: Int => String): String = self match {
-    case In(a) => show(a)
-    case Inv(e) => e.render(false)(show) + "'"
-    case And(entries) => entries.map(_.render(false)(show)).mkString("·")
+  final def render(top: Boolean): String = self match {
+    case In(_, n) => n
+    case Inv(e) => e.render(false) + "'"
+    case And(entries) => entries.map(_.render(false)).mkString("·")
     case Or(entries) =>
-      val parts = entries.map(_.render(false)(show))
+      val parts = entries.map(_.render(false))
       if (top) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
   }
-  final def render(show: Int => String): String = render(true)(show)
-  final def render: String = render(true)(_.toString)
+  final def render: String = render(true)
 
   final def size: Int = self match {
-    case In(_) => 1
+    case _: In => 1
     case Inv(e) => 1 + e.size
     case And(es) => 1 + es.map(_.size).sum
     case Or(es) => 1 + es.map(_.size).sum
@@ -274,7 +273,7 @@ sealed trait Logic { self =>
   // override final def toString: String = render(false)(_.toString)
 
   final def eval(input: BitSet): Boolean = self match {
-    case In(a) => input(a)
+    case In(a, _) => input(a)
     case Inv(e) => !e.eval(input)
     case And(as) => as.forall(_.eval(input))
     case Or(os) => os.exists(_.eval(input))
@@ -306,7 +305,7 @@ sealed trait Logic { self =>
         case Or(entries) =>
           replace_(entries)(es => Or(es.toSet))
 
-        case In(_) => self
+        case _: In => self
       }
     }
 
@@ -316,7 +315,7 @@ sealed trait Logic { self =>
       case Inv(a) => self :: a.nodes
       case And(entries) => self :: nodes_(entries)
       case Or(entries) => self :: nodes_(entries)
-      case In(_) => self :: Nil
+      case _: In => self :: Nil
     }
   }
 
@@ -335,7 +334,7 @@ object Logic {
   // constructor enforces identity A + 0 = A
   case class Or  private(entries: Set[Logic]) extends Logic
 
-  case class In  (channel: Int) extends Logic
+  case class In  (channel: Int, name: String) extends Logic
 
   object Inv {
     def apply(e: Logic): Logic = e match {
