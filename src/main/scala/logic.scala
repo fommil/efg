@@ -97,11 +97,6 @@ object LocalRule {
   //
   // A.(A + B) = A
   // A + (A.B) = A
-  //
-  // with nesting...
-  //
-  // A.(A + B + (A + C)) = A
-  // A + (A.B.(A.C)) = A
   object Eliminate extends LocalRule {
     // The core rule logic exposed for other rules to use directly when there is
     // an an expected immediate opportunity for elimination.
@@ -142,15 +137,23 @@ object LocalRule {
     //
     // Returns None if the node should be eliminated, otherwise a Some of a
     // (potentially) eliminated tree.
-    private def full_2(node: Logic, common_and: Set[Logic], common_or: Set[Logic]): Option[Logic] = node match {
+    private def full_2(node: Logic, common_sums: Set[Logic], common_products: Set[Logic]): Option[Logic] = node match {
       // case And(entries) => ???
 
-      case Or(entries) =>
-        ???
+      case node_ @ Or(entries) =>
+        def rec(or: Or): Boolean = or.entries.exists {
+          case nested: Or => rec(nested)
+          case e => common_products.contains(e)
+        }
+        val filtered =  rec(node_)
+        // still need to recurse on the Ands, which is actually full_2... so maybe we don't need mutual recursion
+
+
+        //if (entries_.size == entries.size) None else Some(Or(entries_))
 
         // TODO need to find all nested ORs, and filter each one where
         // appropriate, removing it entirely if the set is empty.
-
+        ???
 
       case _ => None
     }
@@ -161,7 +164,7 @@ object LocalRule {
     //
     // Returns None if the node should be eliminated, otherwise a Some of a
     // (potentially) eliminated tree.
-    private def full_1(node: Logic, common_and: Set[Logic], common_or: Set[Logic]): Option[Logic] = ???
+    private def full_1(node: Logic, and_factors: Set[Logic], or_factors: Set[Logic]): Option[Logic] = ???
 
     def perform(node: Logic): List[Logic] = eliminate(node).toList
   }
