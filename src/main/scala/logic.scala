@@ -56,6 +56,8 @@ import mccluskey.SofP
 
 import Logic._
 
+// TODO property test all the LocalRules based on consistency of the truth table
+
 trait LocalRule {
   // the List implies different choices that could be taken. Nil implies the
   // rule has no action.
@@ -101,11 +103,6 @@ object LocalRule {
   // A.(A + B + (A + C)) = A
   // A + (A.B.(A.C)) = A
   object Eliminate extends LocalRule {
-    // TODO fully recursive elimination for less frequent calling (note that it
-    // cannot be constructed from multiple single calls because it needs the
-    // great-grandparent common sets). Note that A.(B + ((A + D).C)) eliminates
-    // to A.C, not A. We need to track AND / OR factors separately.
-
     // The core rule logic exposed for other rules to use directly when there is
     // an an expected immediate opportunity for elimination.
     def eliminate(node: Logic): Option[Logic] = node match {
@@ -133,6 +130,38 @@ object LocalRule {
 
       case _ => None
     }
+
+    // We have to recurse all the way to the branches to do full elimination
+    // because the elimination set filters all the way to the ends. Note that we
+    // need to be careful to track nested AND and ORs separately. For
+    // example, A.(B + ((A + D).C)) (AND(OR(AND(...)))) only eliminates the D in
+    // the (A + D) term to A.C, not A.
+    //
+    // this implements the case where the node is an AND inside an OR, or an OR
+    // inside an AND, and should never be called under any other circumstance.
+    //
+    // Returns None if the node should be eliminated, otherwise a Some of a
+    // (potentially) eliminated tree.
+    private def full_2(node: Logic, common_and: Set[Logic], common_or: Set[Logic]): Option[Logic] = node match {
+      // case And(entries) => ???
+
+      case Or(entries) =>
+        ???
+
+        // TODO need to find all nested ORs, and filter each one where
+        // appropriate, removing it entirely if the set is empty.
+
+
+      case _ => None
+    }
+
+    // must only be called for AND/OR that are not inside their complement
+    // (unless both of the common sets are empty, in which case the parents do
+    // not matter).
+    //
+    // Returns None if the node should be eliminated, otherwise a Some of a
+    // (potentially) eliminated tree.
+    private def full_1(node: Logic, common_and: Set[Logic], common_or: Set[Logic]): Option[Logic] = ???
 
     def perform(node: Logic): List[Logic] = eliminate(node).toList
   }
