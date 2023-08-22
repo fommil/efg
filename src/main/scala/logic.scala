@@ -158,12 +158,14 @@ object LocalRule {
         }
         rec(node)
 
-      case Inv(e) =>
-        // this really needs to be tested... flip and invert the factors
-        eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
+      // case Inv(e) =>
+      //   // this really needs to be tested... flip and invert the factors
+      //   eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
 
       case _ => Some(node)
     }
+
+    // FIXME PROPERTY FAILED ON: c·(c + c')
 
     def perform(node: Logic): List[Logic] = {
       val node_ = eliminate(node)
