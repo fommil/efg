@@ -72,8 +72,6 @@ object LocalRule {
   //   A.(A.B.C) => A.B.C
   //   (A + B) + (A + C + D) = A + B + C + D
   object UnNest extends LocalRule {
-    // TODO a variant that recurses
-
     override def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
         val (nested, other) = entries.partitionMap {
@@ -97,9 +95,12 @@ object LocalRule {
   //
   // A.(A + B) = A
   // A + (A.B) = A
+  //
+  // TODO complementation
+  // A + A' = 1
+  // A . A' = 0
+  // it would be good to do this without having to introduce 0 and 1 to the AST.
   object Eliminate extends LocalRule {
-    // TODO maybe this is best implemented as a GlobalRule
-
     // The core rule logic exposed for other rules to use directly when there is
     // an expected immediate opportunity for elimination.
     //
@@ -178,14 +179,6 @@ object LocalRule {
   //
   // considers all possible factors for an expression.
   object Factor extends LocalRule {
-    // TODO have a separate "Optimal Factors" that calculates all permutations
-    // of a factorisation (including iterating over the common and uncommon
-    // remainders) and returns the one factorisation with the minimal number of
-    // terms. Although this can be reached by searching through the individual
-    // factors, it is useful to have this as a single step choice which can
-    // potentially be applied once, from the branches to the trunk, for a
-    // comparison solution.
-
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
         def rec(or: Or): List[Logic] = or.entries.toList.flatMap {
@@ -227,12 +220,6 @@ object LocalRule {
   //      A'.B'.C = (A + B + C')' (outer Inv counts less than an inner one)
   //      A' + B' + C = (A.B.C')'
 
-  // TODO complementation
-  // A + A' = 1
-  // A . A' = 0
-  // it would be good to do this without having to introduce 0 and 1 to the AST.
-  // perhaps include in the elimination rule.
-
   // TODO detect and remove dontcares
 
   // TODO XOR / NAND expansions
@@ -246,8 +233,7 @@ trait GlobalRule {
   def perform(nodes: List[Logic]): Map[Logic, Logic]
 }
 object GlobalRule {
-  // TODO split AND / OR gates that have sub-sets that could be shared
-  //      (note that this must be performed after local rules or it can be undone)
+  // TODO split AND / OR gates that have sub-sets that can be shared
 }
 
 // combinatorial logic, cycles are not permitted (caller's responsibility).

@@ -16,3 +16,11 @@ assemblyMergeStrategy := {
   case "rootdoc.txt" => MergeStrategy.discard
   case x => assemblyMergeStrategy.value(x)
 }
+
+libraryDependencies ++= Seq(
+  "com.novocode" % "junit-interface" % "0.11" % Test,
+  "junit"        % "junit"           % "4.13.2" % Test
+)
+Test / crossPaths := false // https://github.com/sbt/junit-interface/issues/35
+testOptions += Tests.Argument(TestFrameworks.JUnit, "-v")
+fork := true

@@ -291,10 +291,11 @@ final class Cube private(
   }
 
   def asLogic: Logic = Logic.And {
+    val names = alpha_syms.take(values.length).map(_.toLowerCase).toArray
     values.zipWithIndex.flatMap {
       case (Bit.DontCare, _) => None
-      case (Bit.True, i) => Some(Logic.In(i, i.toString))
-      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i, i.toString)))
+      case (Bit.True, i) => Some(Logic.In(i, names(i)))
+      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i, names(i))))
     }.toSet
   }
 
