@@ -29,31 +29,59 @@ final class Gen[A](val f: Rand => (Rand, A)) {
 object Gen {
   def apply[A](f: Rand => (Rand, A)): Gen[A] = new Gen(f)
 
-  case class Config(seed: Long, count: Int)
+  case class Config(seed: Long, count: Int, shrinks: Int)
   object Config {
-    implicit val default: Config = Config(seed = 1337, count = 1000)
+    implicit val default: Config = Config(seed = 1337, count = 1000, shrinks = 1000)
   }
 
-  def prop[A](g: Gen[A])(f: A => Unit)(implicit c: Config): Unit =
+  def prop[A](g: Gen[A], s: Shrink[A])(f: A => Unit)(implicit c: Config): Unit =
     infinite(MersenneTwister64(c.seed), g).take(c.count).foreach { a =>
-      // if we want to add minimisation / shrinking, this is where it would go:
-      // take a shrinker for each generator and then intercept failures and
-      // retry until we get a pass. Try until there is nowhere else to go.
-      try f(a)
-      catch {
-        case t: Throwable =>
-          var str = a.toString
-          if (str.length > 100) str = str.take(100) + "..."
-          println(s"PROPERTY FAILED ON: $str")
-          throw t
+      var continue = true
+      var last_failed: Option[A] = None
+      var last_throwable: Throwable = null
+      var a_ = a
+      var next_as: List[A] = Nil // cache of things to try, spawned from last failure
+      var i = 0
+
+      while (continue) {
+        try {
+          i += 1
+          if (i > c.shrinks) continue = false
+          if (next_as.nonEmpty) {
+            a_ = next_as.head
+            next_as = next_as.tail
+          }
+          f(a_)
+        } catch {
+          case t: Throwable =>
+            // just ignore what was there, seems wasteful
+            next_as = s.shrink(a_)
+            if (last_throwable == null && next_as.nonEmpty)
+              println(s"PROPERTY FAILED. MINIMISING.")
+            last_failed = Some(a_)
+            last_throwable = t
+        }
+      }
+
+      if (last_failed.nonEmpty) {
+        var str = last_failed.get.toString
+        if (str.length > 100) str = str.take(100) + "..."
+        println(s"PROPERTY FAILED ON: $str")
+        throw last_throwable
       }
     }
+  def prop[A](g: Gen[A])(f: A => Unit)(implicit c: Config): Unit =
+    prop(g, Shrink.NONE[A])(f)
 
+  def prop[A1, A2](g1: Gen[A1], g2: Gen[A2], s: Shrink[(A1, A2)])(f: (A1, A2) => Unit)(implicit c: Config): Unit =
+    prop(tupled(g1, g2), s) { case (a1, a2) => f(a1, a2) }
   def prop[A1, A2](g1: Gen[A1], g2: Gen[A2])(f: (A1, A2) => Unit)(implicit c: Config): Unit =
-    prop(tupled(g1, g2)) { case (a1, a2) => f(a1, a2) }
+    prop(tupled(g1, g2), Shrink.NONE[(A1, A2)]) { case (a1, a2) => f(a1, a2) }
 
+  def prop[A1, A2, A3](g1: Gen[A1], g2: Gen[A2], g3: Gen[A3], s: Shrink[(A1, A2, A3)])(f: (A1, A2, A3) => Unit)(implicit c: Config): Unit =
+    prop(tupled(g1, g2, g3), s) { case (a1, a2, a3) => f(a1, a2, a3) }
   def prop[A1, A2, A3](g1: Gen[A1], g2: Gen[A2], g3: Gen[A3])(f: (A1, A2, A3) => Unit)(implicit c: Config): Unit =
-    prop(tupled(g1, g2, g3)) { case (a1, a2, a3) => f(a1, a2, a3) }
+    prop(g1, g2, g3, Shrink.NONE[(A1, A2, A3)])(f)
 
   def pure[A](a: A): Gen[A]          = Gen((_, a))
   def delay[A](a: => Gen[A]): Gen[A] = Gen(r => a.f(r))
@@ -212,4 +240,29 @@ object Gen {
   def localDateTime(min: LocalDateTime, max: LocalDateTime): Gen[LocalDateTime] =
     instant(min.toInstant(UTC), max.toInstant(UTC)).map(LocalDateTime.ofInstant(_, UTC))
 
+}
+
+// used to minimise property test failures. The test framework will request that
+// A is reduced in size, and will keep repeating the same assertion, until it
+// has produced a failure with the smallest A. This isn't Haskell, so remember
+// that it all has to fit into a strict data structure.
+//
+// composition sucks... it's invariant.
+trait Shrink[A] {
+  def shrink(a: A): List[A]
+}
+object Shrink {
+  def apply[A](f: A => List[A]): Shrink[A] = new Shrink[A] {
+    override def shrink(a: A): List[A] = f(a)
+  }
+
+  def NONE[A] = Shrink[A](_ => Nil)
+
+  def set[A](f: A => List[A]): Set[A] => List[Set[A]] = { sa =>
+    // consider each entry removed, and then same entry shrunk
+    sa.toList.flatMap { a =>
+      val removed = sa - a
+      removed :: f(a).map {a_ => removed + a_}
+    }
+  }
 }

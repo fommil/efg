@@ -37,19 +37,29 @@ object LogicGen {
   }
   private val names: Array[String] = alpha_syms.map(_.toLowerCase).take(8).toArray
   lazy val gen: Gen[Logic] = impl(0)
+
+  lazy val shrinker: Shrink[Logic] = Shrink {
+    case _: In => Nil
+    case Inv(e) => e :: Nil
+    case And(entries) => Shrink.set(shrinker.shrink)(entries).map(And(_))
+    case Or(entries) => Shrink.set(shrinker.shrink)(entries).map(Or(_))
+  }
 }
 
 class LogicTest extends Test {
 
-  def testUnnest: Unit = Gen.prop(LogicGen.gen) { ast =>
-    UnNest.perform(ast).foreach { transformed =>
-      assert(transformed != ast, "rule should only return new forms")
-
+  def assertLocalRule(rule: LocalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) { ast =>
+    rule.perform(ast).foreach { transformed =>
+      assert(transformed != ast, "should only return new forms")
       (0 until 16).foreach { i =>
         val in = BitSet.fromBitMask(Array(i))
         assertEquals(ast.eval(in), transformed.eval(in))
       }
     }
   }
+
+  def testUnNest: Unit = assertLocalRule(UnNest)
+  def testEliminate: Unit = assertLocalRule(Eliminate)
+  def testFactor: Unit = assertLocalRule(Factor)
 
 }

@@ -56,8 +56,6 @@ import mccluskey.SofP
 
 import Logic._
 
-// TODO property test all the LocalRules based on consistency of the truth table
-
 trait LocalRule {
   // the List implies different choices that could be taken. Nil implies the
   // rule has no action.
@@ -78,14 +76,16 @@ object LocalRule {
           case And(es) => Left(es)
           case es => Right(es)
         }
-        List(And(nested.flatten ++ other))
+        if (nested.isEmpty) Nil
+        else List(And(nested.flatten ++ other))
 
       case Or(entries) =>
         val (nested, other) = entries.partitionMap {
           case Or(es) => Left(es)
           case es => Right(es)
         }
-        List(Or(nested.flatten ++ other))
+        if (nested.isEmpty) Nil
+        else List(Or(nested.flatten ++ other))
 
       case _ => Nil
     }
@@ -162,7 +162,7 @@ object LocalRule {
         // this really needs to be tested... flip and invert the factors
         eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
 
-      case _ => None
+      case _ => Some(node)
     }
 
     def perform(node: Logic): List[Logic] = {
@@ -256,7 +256,7 @@ sealed trait Logic { self =>
     case Or(es) => 1 + es.map(_.size).sum
   }
 
-  // override final def toString: String = render(false)(_.toString)
+  override final def toString: String = render(false)
 
   final def eval(input: BitSet): Boolean = self match {
     case In(a, _) => input(a)
