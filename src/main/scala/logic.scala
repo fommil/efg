@@ -95,11 +95,6 @@ object LocalRule {
   //
   // A.(A + B) = A
   // A + (A.B) = A
-  //
-  // TODO complementation
-  // A + A' = 1
-  // A . A' = 0
-  // it would be good to do this without having to introduce 0 and 1 to the AST.
   object Eliminate extends LocalRule {
     // The core rule logic exposed for other rules to use directly when there is
     // an expected immediate opportunity for elimination.
@@ -235,6 +230,8 @@ object GlobalRule {
 // combinatorial logic, cycles are not permitted (caller's responsibility).
 sealed trait Logic { self =>
   final def render(top: Boolean): String = self match {
+    case True => "1"
+    case Inv(True) => "0"
     case In(_, n) => n
     case Inv(e) => e.render(false) + "'"
     case And(entries) => entries.map(_.render(false)).mkString("·")
@@ -246,6 +243,7 @@ sealed trait Logic { self =>
   final def render: String = render(true)
 
   final def size: Int = self match {
+    case True => 1
     case _: In => 1
     case Inv(e) => 1 + e.size
     case And(es) => 1 + es.map(_.size).sum
@@ -255,6 +253,7 @@ sealed trait Logic { self =>
   override final def toString: String = render(false)
 
   final def eval(input: BitSet): Boolean = self match {
+    case True => true
     case In(a, _) => input(a)
     case Inv(e) => !e.eval(input)
     case And(as) => as.forall(_.eval(input))
@@ -277,6 +276,8 @@ sealed trait Logic { self =>
       }
 
       self match {
+        case True => self
+
         case Inv(e) =>
           val replaced = e.replace(target, replacement)
           if (replaced ne e) Inv(replaced) else self
@@ -294,6 +295,7 @@ sealed trait Logic { self =>
   def nodes: List[Logic] = {
     def nodes_(es: Iterable[Logic]): List[Logic] = es.toList.flatMap(_.nodes)
     self match {
+      case True => self :: Nil
       case Inv(a) => self :: a.nodes
       case And(entries) => self :: nodes_(entries)
       case Or(entries) => self :: nodes_(entries)
@@ -310,28 +312,59 @@ object Logic {
 
   // structure enforces indempotency A . A = A
   // constructor enforces identity A . 1 = A
+  // constructor enforces complementation A . A' = 0
   case class And private(entries: Set[Logic]) extends Logic
 
   // structure enforces indempotency A + A = A
   // constructor enforces identity A + 0 = A
+  // constructor enforces complementation A + A' = 1
   case class Or  private(entries: Set[Logic]) extends Logic
 
   case class In  (channel: Int, name: String) extends Logic
 
+  // a placemarker (along with Inv(True)) for nodes that can be collapsed
+  case object True extends Logic
+
   object Inv {
+    private val False = new Inv(True)
     def apply(e: Logic): Logic = e match {
+      case True => False
       case Inv(ee) => ee
       case e => new Inv(e)
     }
   }
 
+  // TODO make "unsafe" faster AND/OR constructor variants available that bypass
+  // various checks when we know that internal consistency checks are redundant.
+
   object And {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
     def apply(entries: Set[Logic]): Logic = {
-      require(entries.nonEmpty)
-      if (entries.size == 1) entries.head
-      else new And(entries)
+      var entries_ = entries - True
+
+      // this doesn't remove all dupes from nested AND gates, we could still
+      // have AND(AND(a, b), AND(b, c)). The UnNest rule considers this, as we
+      // want to preserve structure here.
+      def rec(es: Set[Logic], top: Boolean): Unit = es.foreach { e =>
+        if (entries_.contains(Inv(e)) || (top && e == Inv(True))) {
+          entries_ = Set(Inv(True))
+          return // doesn't fully exit, but stops recursing
+        }
+
+        if (!top && entries_.contains(e))
+          entries_ = entries_ - e
+
+        e match {
+          case And(nested) => rec(nested, false)
+          case _ => ()
+        }
+      }
+      rec(entries_, true)
+
+      if (entries_.isEmpty) True
+      else if (entries_.size == 1) entries_.head
+      else new And(entries_)
     }
   }
 

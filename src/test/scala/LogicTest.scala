@@ -38,6 +38,7 @@ object LogicGen {
   lazy val gen: Gen[Logic] = impl(0)
 
   lazy val shrinker: Shrink[Logic] = Shrink {
+    case True => Nil
     case _: In => Nil
     case Inv(e) => e :: Nil
     case And(entries) => Shrink.set(shrinker.shrink)(entries).map(And(_))
