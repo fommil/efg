@@ -121,51 +121,45 @@ object LocalRule {
     // (potentially) reduced tree.
     private def eliminate_(node: Logic, common_sums: Set[Logic], common_products: Set[Logic]): Option[Logic] = node match {
       case node: And =>
-        def flatten_factors(and: And): Set[Logic] = and.entries.flatMap {
-          case nested: And => flatten_factors(nested)
+        def flatten_factors(outer: And): Set[Logic] = outer.entries.flatMap {
+          case inner: And => flatten_factors(inner)
           case e => Set(e)
         }
-        lazy val common_products_ = common_products ++ flatten_factors(node)
+        val flattened_factors = flatten_factors(node)
 
-        def rec(and: And): Option[Logic] = {
-          val entries_ = and.entries.flatMap {
-            case nested: And => rec(nested)
-            case flip: Or => eliminate_(flip, common_sums, common_products_)
-            case e =>
-              if (common_sums.contains(e)) None
-              else Some(e)
+        if (flattened_factors.overlaps(common_sums)) None
+        else {
+          lazy val common_products_ = common_products ++ flatten_factors(node)
+          val entries_ = node.entries.flatMap {
+            case flip: Or => eliminate_(flip, common_sums - flip, common_products_)
+            case e => Some(e)
           }
           if (entries_.isEmpty) None else Some(And(entries_))
         }
-        rec(node)
 
       case node: Or =>
-        def flatten_factors(or: Or): Set[Logic] = or.entries.flatMap {
-          case nested: Or => flatten_factors(nested)
+        def flatten_factors(outer: Or): Set[Logic] = outer.entries.flatMap {
+          case inner: Or => flatten_factors(inner)
           case e => Set(e)
         }
-        lazy val common_sums_ = common_sums ++ flatten_factors(node)
+        val flattened_factors = flatten_factors(node)
 
-        def rec(or: Or): Option[Logic] = {
-          val entries_ = or.entries.flatMap {
-            case nested: Or => rec(nested)
-            case flip: And => eliminate_(flip, common_sums_, common_products)
-            case e =>
-              if (common_products.contains(e)) None
-              else Some(e)
+        if (flattened_factors.overlaps(common_products)) None
+        else {
+          lazy val common_sums_ = common_sums ++ flattened_factors
+          val entries_ = node.entries.flatMap {
+            case flip: And => eliminate_(flip, common_sums_ - flip, common_products)
+            case e => Some(e)
           }
           if (entries_.isEmpty) None else Some(Or(entries_))
         }
-        rec(node)
 
-      // case Inv(e) =>
-      //   // this really needs to be tested... flip and invert the factors
-      //   eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
+        // case Inv(e) =>
+        //   // this really needs to be tested... flip and invert the factors
+        //   eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
 
       case _ => Some(node)
     }
-
-    // FIXME PROPERTY FAILED ON: c·(c + c')
 
     def perform(node: Logic): List[Logic] = {
       val node_ = eliminate(node)
@@ -332,6 +326,8 @@ object Logic {
   }
 
   object And {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
     def apply(entries: Set[Logic]): Logic = {
       require(entries.nonEmpty)
       if (entries.size == 1) entries.head
@@ -340,6 +336,8 @@ object Logic {
   }
 
   object Or {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
     def apply(entries: Set[Logic]): Logic = {
       require(entries.nonEmpty)
       if (entries.size == 1) entries.head

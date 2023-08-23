@@ -27,13 +27,12 @@ object LogicGen {
     val or: Gen[Logic] = set.map(Or(_))
     val and: Gen[Logic] = set.map(And(_))
 
-    // TODO Gen.frequency(
-    //   Gen.delay(genIn) -> 1,
-    //   Gen.delay(genInv) -> 3,
-    //   Gen.delay(genAnd) -> 4,
-    //   Gen.delay(genOr) -> 4
-    // )
-    Gen.oneOf(or, and, in, inv)
+    Gen.frequency(
+      Gen.delay(in) -> 1,
+      Gen.delay(inv) -> 3,
+      Gen.delay(and) -> 4,
+      Gen.delay(or) -> 4
+    )
   }
   private val names: Array[String] = alpha_syms.map(_.toLowerCase).take(8).toArray
   lazy val gen: Gen[Logic] = impl(0)
@@ -48,18 +47,37 @@ object LogicGen {
 
 class LogicTest extends Test {
 
-  def assertLocalRule(rule: LocalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) { ast =>
+  def assertLocalRule(rule: LocalRule, ast: Logic): Unit =
     rule.perform(ast).foreach { transformed =>
       assert(transformed != ast, "should only return new forms")
+
       (0 until 16).foreach { i =>
         val in = BitSet.fromBitMask(Array(i))
         assertEquals(ast.eval(in), transformed.eval(in))
       }
     }
+
+  def propLocalRule(rule: LocalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) {
+    ast => assertLocalRule(rule, ast)
   }
 
-  def testUnNest: Unit = assertLocalRule(UnNest)
-  def testEliminate: Unit = assertLocalRule(Eliminate)
-  def testFactor: Unit = assertLocalRule(Factor)
+  def testUnNest: Unit = propLocalRule(UnNest)
+  def testEliminate: Unit = propLocalRule(Eliminate)
+  def testFactor: Unit = propLocalRule(Factor)
+
+  // any property test that fails, no matter how simple, should be documented
+  // below as a standalone test, committed along with the fix.
+
+  // common entries...
+  private val a = In(0, "a")
+  private val b = In(1, "b")
+
+  // a·(a + b)
+  def testEliminate1: Unit = assertLocalRule(Eliminate, And(a, Or(a, Inv(a))))
+
+  // (a·b + a)
+  def testEliminate2: Unit = assertLocalRule(Eliminate, Or(And(a, b), a))
 
 }
+
+// sbtn Test/testOnly -- *.LogicTest.testEliminate1

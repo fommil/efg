@@ -57,7 +57,7 @@ object Gen {
             // just ignore what was there, seems wasteful
             next_as = s.shrink(a_)
             if (last_throwable == null && next_as.nonEmpty)
-              println(s"PROPERTY FAILED. MINIMISING.")
+              System.err.println(s"PROPERTY FAILED. MINIMISING.")
             last_failed = Some(a_)
             last_throwable = t
         }
@@ -66,7 +66,7 @@ object Gen {
       if (last_failed.nonEmpty) {
         var str = last_failed.get.toString
         if (str.length > 100) str = str.take(100) + "..."
-        println(s"PROPERTY FAILED ON: $str")
+        System.err.println(s"PROPERTY FAILED ON: $str")
         throw last_throwable
       }
     }
