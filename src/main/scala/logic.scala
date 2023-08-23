@@ -341,18 +341,15 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
     def apply(entries: Set[Logic]): Logic = {
-      var entries_ = entries - True
+      var entries_ = entries
 
       // this doesn't remove all dupes from nested AND gates, we could still
       // have AND(AND(a, b), AND(b, c)). The UnNest rule considers this, as we
       // want to preserve structure here.
       def rec(es: Set[Logic], top: Boolean): Unit = es.foreach { e =>
-        if (entries_.contains(Inv(e)) || (top && e == Inv(True))) {
+        if (entries_.contains(Inv(e)) || (top && e == Inv(True)))
           entries_ = Set(Inv(True))
-          return // doesn't fully exit, but stops recursing
-        }
-
-        if (!top && entries_.contains(e))
+        else if ((!top && entries_.contains(e)) || (top && e == True))
           entries_ = entries_ - e
 
         e match {
@@ -372,9 +369,24 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
     def apply(entries: Set[Logic]): Logic = {
-      require(entries.nonEmpty)
-      if (entries.size == 1) entries.head
-      else new Or(entries)
+      var entries_ = entries
+
+      def rec(es: Set[Logic], top: Boolean): Unit = es.foreach { e =>
+        if (entries_.contains(Inv(e)))
+          entries_ = Set(True)
+        else if ((!top && entries_.contains(e)) || (top && e == Inv(True)))
+          entries_ = entries_ - e
+
+        e match {
+          case Or(nested) => rec(nested, false)
+          case _ => ()
+        }
+      }
+      rec(entries_, true)
+
+      if (entries_.isEmpty) True
+      else if (entries_.size == 1) entries_.head
+      else new Or(entries_)
     }
   }
 
