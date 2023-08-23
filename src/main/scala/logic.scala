@@ -334,9 +334,6 @@ object Logic {
     }
   }
 
-  // TODO make "unsafe" faster AND/OR constructor variants available that bypass
-  // various checks when we know that internal consistency checks are redundant.
-
   object And {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
