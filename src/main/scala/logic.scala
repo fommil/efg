@@ -305,7 +305,8 @@ sealed trait Logic { self =>
 
 }
 object Logic {
-  // TODO caching hashCode may be beneficial to all the Set usage
+  // TODO caching hashCode may be beneficial for performance
+  // TODO likewise, using hashCode as the first check in equals
 
   // constructor enforces involution: (A')' = A
   case class Inv private(entry: Logic) extends Logic
