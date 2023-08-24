@@ -28,8 +28,7 @@
 // verilog syntax) variants, and is free to rewrite the latter into gate level
 // cells. The gate level cells are 1 bit binary operations, but the high level
 // variants support multi-bit. $reduce_and and $reduce_or are roughly the
-// multi-arity versions of AND and OR that we would care about, and it doesn't
-// really matter which of A or B the inputs use.
+// multi-arity versions of AND and OR that we would care about.
 //
 // We can also produce netlists that use non-standard cells by provide custom
 // skins, but be aware that yosys will not be able to understand them. For
