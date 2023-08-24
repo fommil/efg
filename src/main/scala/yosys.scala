@@ -16,12 +16,20 @@
 //    $_XNOR_          (A, B, Y)
 //    $_XOR_           (A, B, Y)
 //
+//    $reduce_and      (A, Y)
+//    $reduce_bool     (A, Y)
+//    $reduce_or       (A, Y)
+//    $reduce_xnor     (A, Y)
+//    $reduce_xor      (A, Y)
+//
 // Which are understood by netlistsvg by the default.svg skin file.
 //
 // Note that yosys has uppercase (gate level) cells, and lowercase (high level /
 // verilog syntax) variants, and is free to rewrite the latter into gate level
-// cells. By using exclusively the gate level variants, we can ensure that the
-// structures are preserved.
+// cells. The gate level cells are 1 bit binary operations, but the high level
+// variants support multi-bit. $reduce_and and $reduce_or are roughly the
+// multi-arity versions of AND and OR that we would care about, and it doesn't
+// really matter which of A or B the inputs use.
 //
 // We can also produce netlists that use non-standard cells by provide custom
 // skins, but be aware that yosys will not be able to understand them. For
@@ -29,12 +37,15 @@
 // description of basic components such as resistors, diodes, transistors and
 // capacitors. The shape of the connections and required attributes may be
 // inferred from reading the SVG.
-package netlistsvg
+package yosys
 
 import scala.annotation.switch
 
+import fommil.util._
 import jzon.Decoder.{ JsonError, UnsafeJson }
 import jzon.internal.RetractReader
+import logic.Logic
+import logic.Logic._
 
 case class Netlist(
   modules: Map[Module.Name, Module]
@@ -58,8 +69,12 @@ case class Cell(
 
 sealed trait Connection
 object Connection {
-  case class Literal(s: String) extends Connection
-  case class Ref(i: Int) extends Connection
+  case class Literal(s: String) extends Connection {
+    override def toString = s
+  }
+  case class Ref(i: Int) extends Connection {
+    override def toString = i.toString
+  }
 
   implicit val encoder: jzon.Encoder[Connection] = new jzon.Encoder[Connection] {
     def unsafeEncode(a: Connection, indent: Option[Int], out: java.io.Writer): Unit = a match {
@@ -72,7 +87,7 @@ object Connection {
     def unsafeDecode(trace: List[JsonError], in: RetractReader): Connection = {
       val next = in.nextNonWhitespace()
       in.retract()
-      (next: @switch) match {
+        (next: @switch) match {
         case '"' => Literal(jzon.Decoder[String].unsafeDecode(trace, in))
         case '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9' => Ref(jzon.Decoder[Int].unsafeDecode(trace, in))
         case _ => throw UnsafeJson(JsonError.Message("expected string or number") :: trace)
@@ -105,5 +120,59 @@ object Module {
 }
 
 object Netlist {
+  import Connection.{ Literal, Ref }
 
+  implicit val encoder: jzon.Encoder[Netlist] = jzon.Encoder.derived
+  implicit val decoder: jzon.Decoder[Netlist] = jzon.Decoder.derived
+
+  def from(name: String, outputs: List[Logic]): Netlist = {
+    // all nodes are single output, so we can assign each node an index which
+    // will be the connection identifier for its output.
+
+    val lookup = outputs.flatMap(_.nodes).distinct.zipWithIndex.toMap
+    def con(node: Logic): Connection = node match {
+      case True => Literal("1")
+      case Inv(True) => Literal("0")
+      case _ => Ref(lookup(node))
+    }
+
+    // create the lookup from each node into a cell type, port dependencies
+    val (ports, cells) = lookup.flatMap {
+      case (node, _) => con(node) match {
+        case Literal(_) => None
+        case ref => Some(node -> ref)
+      }
+    }.partitionMap {
+      case (True, _) => impossible
+      case (n: Inv, y) => Right { s"Inv$$$y" ->
+        Cell("$_NOT_", Map.empty, Map("A" -> "input", "Y" -> "output"),
+          Map("A" -> List(con(n.entry)), "Y" -> List(y)))
+      }
+      case (n: And, y) => Right { s"And$$$y" -> {
+        if (n.entries.size == 2) {
+          val es = n.entries.toList.map(con(_))
+          Cell("$_AND_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
+            Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
+        } else
+          Cell("$reduce_and", Map.empty, Map("A" -> "input", "Y" -> "output"),
+            Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+      }}
+      case (n: Or, y) => Right { s"Or$$$y" -> {
+        if (n.entries.size == 2) {
+          val es = n.entries.toList.map(con(_))
+          Cell("$_OR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
+            Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
+        } else
+          Cell("$reduce_or", Map.empty, Map("A" -> "input", "Y" -> "output"),
+            Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+      }}
+      case (n: In, y) => Left { n.name -> Port("input", List(y)) }
+    }
+
+    val signals = outputs.zipWithIndex.map {
+      case (node, i) => s"$i" -> Port("output", List(con(node)))
+    }
+
+    Netlist(Map(name -> Module(ports.toMap ++ signals, cells.toMap)))
+  }
 }

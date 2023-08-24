@@ -1,5 +1,7 @@
 package fommil
 
+import java.lang.IllegalStateException
+
 object util {
   implicit class SetOpz[A](private val as: Set[A]) extends AnyVal {
     // equivalent to a1.intersects(a2).nonEmpty
@@ -77,4 +79,6 @@ object util {
     }
     buf.reverse.toString
   }
+
+  def impossible: Nothing = throw new IllegalStateException("a dev made a mistake")
 }

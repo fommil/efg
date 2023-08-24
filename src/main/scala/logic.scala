@@ -8,10 +8,6 @@
 // those papers are devoid of actual implementable details, so what we do is
 // maintain a list of manual rules that run on the AST of the circuit.
 //
-// TODO Each rule is able to provide a weight of whether it thinks it would be
-// able to help optimise the circuit or not (according to the objective
-// function).
-//
 // TODO We explore the space of possible moves using a form of simulated
 // annealing with a fixed limit of scouts. Rules may be combined in each step.
 //
@@ -37,12 +33,8 @@
 // around fan-in and fan-out and do not consider interference (sometimes for the
 // better) such as power-up times of multi-gate components.
 //
-// TODO The output is a netlib using the JSON format described at
-// https://github.com/nturley/netlistsvg which is really only appropriate for
-// visualisation and manual inspection.
-//
-// TODO output formats that can be simulated with SPICE
-// TODO output formats that can be used by other tools
+// The output is a netlib in yosys (https://github.com/YosysHQ/) JSON format,
+// which can be rendered by https://github.com/nturley/netlistsvg
 package logic
 
 import java.io.File
@@ -305,8 +297,7 @@ sealed trait Logic { self =>
 
 }
 object Logic {
-  // TODO caching hashCode may be beneficial for performance
-  // TODO likewise, using hashCode as the first check in equals
+  // caching hashCode (and using in equals) may be beneficial for performance
 
   // constructor enforces involution: (A')' = A
   case class Inv private(entry: Logic) extends Logic
