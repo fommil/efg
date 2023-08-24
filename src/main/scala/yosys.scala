@@ -57,7 +57,6 @@ case class Port(
   direction: Port.Direction,
   bits: List[Connection]
 )
-// port_directions are only required for non-standard cells
 // attributes are cell-specific
 case class Cell(
   `type`: Cell.Type,
