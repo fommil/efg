@@ -10,9 +10,9 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.BitSet
+import scala.collection.immutable.ArraySeq
 
-import mccluskey.{ Cube, SofP }
+import mccluskey.{ Cube, Storage }
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -21,30 +21,27 @@ object Main {
     require(in.isFile(), s"$in must exist")
     val input = Files.readString(in.toPath, UTF_8)
 
-    val mins = jzon.Decoder[SofP.Storage].decodeJson(input) match {
+    val mins = jzon.Decoder[Storage].decodeJson(input) match {
       case Left(err) => throw new IllegalArgumentException(err)
       case Right(as) => as
     }
 
-    def all_inputs = Cube.bitsets(mins.input_width)
+    // only need to consider one of the solutions
+    val logic = mins.asLogic.head.to(ArraySeq)
 
-    val trues = mins.asLogic.map { out =>
-      val logic = out.head // only need to consider one
-      all_inputs.filter(logic.eval(_)).toSet
-    }
+    val in_names = mins.input_names.mkString(" ")
+    val out_names = logic.map(_._1).mkString(" ")
+    System.out.println(s"@ ${in_names} | ${out_names}")
 
-    all_inputs.foreach { row =>
-      val truth = trues.zipWithIndex.foldLeft(BitSet()) {
-        case (bits, (t, i)) => if (t.contains(row)) bits + i else bits
+    Cube.bitsets(mins.input_width).foreach { input =>
+      val outputs = logic.map {
+        case (_, channel) => channel.eval(input)
       }
-      if (truth.nonEmpty) {
-        val input = Cube.from(row, mins.input_width)
-        if (mins.output_width == 1) {
-          System.out.println(input.render)
-        } else {
-          val output = Cube.from(truth, mins.output_width)
-          System.out.println(input.render + " | " + output.render)
-        }
+      if (outputs.exists(identity)) {
+        val row_input = Cube.from(input, mins.input_width)
+        val row_output = Cube(outputs.map(o => Cube.Bit(Option(o))))
+
+        System.out.println(s"${row_input.render} | ${row_output.render}")
       }
     }
   }

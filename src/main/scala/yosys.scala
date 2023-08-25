@@ -41,8 +41,6 @@ package yosys
 import scala.annotation.switch
 
 import fommil.util._
-import jzon.Decoder.{ JsonError, UnsafeJson }
-import jzon.internal.RetractReader
 import logic.Logic
 import logic.Logic._
 
@@ -82,13 +80,13 @@ object Connection {
   }
 
   implicit val decoder: jzon.Decoder[Connection] = new jzon.Decoder[Connection] {
-    def unsafeDecode(trace: List[JsonError], in: RetractReader): Connection = {
+    def unsafeDecode(trace: List[jzon.Decoder.JsonError], in: jzon.internal.RetractReader): Connection = {
       val next = in.nextNonWhitespace()
       in.retract()
-        (next: @switch) match {
+
+      (next: @switch) match {
         case '"' => Literal(jzon.Decoder[String].unsafeDecode(trace, in))
-        case '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9' => Ref(jzon.Decoder[Int].unsafeDecode(trace, in))
-        case _ => throw UnsafeJson(JsonError.Message("expected string or number") :: trace)
+        case _ => Ref(jzon.Decoder[Int].unsafeDecode(trace, in))
       }
     }
   }

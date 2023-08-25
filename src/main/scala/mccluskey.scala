@@ -10,9 +10,10 @@
 //
 // Missing rows are treated as having 0 in the output column.
 //
-// Outputs the minimal sum of prime implicants to stdout in JSON format, along
-// with the mimimal sum of prime implicants for the inverted output (which can
-// sometimes be more efficient).
+// Outputs the minimal sum of prime implicants to stdout in JSON format,
+// formulating multi-output tables as characteristic functions that are
+// recombined. Note that sometimes the minsums are more efficient if an output
+// channel is inverted which is the responsibility of the user.
 //
 // The interpretation of the output is such that each sum of products is a
 // complement of the circuit that recovers the truth table. For example 'A.B.C'
@@ -23,23 +24,19 @@
 // lot of inputs, due to the number of primes. For this reason, research has
 // continued in the form of "Logic minimization algorithms for VLSI synthesis"
 // Brayton84, aka ESPRESSO-II, and latterly ESPRESSO-SIGNATURE. These algorithms
-// use heuristic approaches to find a smaller set of sum of products that are
-// highly likely to contain the globally optimal minimum.
+// use heuristic approaches to find smaller solution sets that are likely to
+// contain the global minimum.
 //
-// The 2-level logic form that is output usually has the shortest critical path
-// (for the AND/OR logic step, not counting inversion), since it is maximally
-// parallel, but is woefully inefficient in terms of number of gates. Therefore,
-// the next step in practical circuit design is typically Multilevel Logic
-// Synthesis.
-//
-// TODO characteristic functions for multi-output logic tables
+// The 2-level logic form has the shortest critical path, but is woefully
+// inefficient in terms of number of gates. The next step in practical circuit
+// design is typically Multilevel Logic Synthesis.
 package mccluskey
 
 import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
-import scala.collection.immutable.{ ArraySeq, BitSet, ListMap }
+import scala.collection.immutable.{ ArraySeq, BitSet, ListMap, ListSet, TreeMap }
 
 import fommil.util._
 import jzon.syntax._
@@ -54,46 +51,46 @@ object Main {
     require(in.isFile(), s"$in must exist")
 
     val input = Files.readString(in.toPath, UTF_8)
+    val (input_width, tables, in_names, out_names) = parse(input)
+    val out = solve(input_width, tables, in_names, out_names)
 
-    val (input_width, canon) = canonical_representation(input)
-    // System.out.println(input_width)
-    // System.out.println(canon.map(_._1).mkString("\n"))
-    val output_width = canon.head._2.length
-
-    val canon_lookup = canon.toMap
-    val inverse = Cube.bitsets(input_width).flatMap { bs =>
-      // invert all the outputs, don't include zeros, keep dterms
-      canon_lookup.get(bs) match {
-        case Some(output) =>
-          val out = output.invert
-          if (out.zero) None else Some(bs -> out)
-        case None =>
-          val out = Cube.ones(output_width)
-          Some(bs -> out)
-      }
-    }.toList
-
-    val (mins, mins_inv) = (0 until output_width).map { i =>
-      val primes = prime_implicants(canon, i, input_width)
-      val iprimes = prime_implicants(inverse, i, input_width)
-      (prime_sums(primes).minimise, prime_sums(iprimes).minimise)
-    }.toList.unzip
-
-    // shared across all the outputs
-    val out = SofP.Storage.create(input_width, mins, mins_inv)
     System.out.println(out.toJsonPretty)
   }
 
-  // construct the canonical representation (including d-terms) from the user's
-  // .truth table along with each row's output Cube. If the user provided rows
-  // with zero output they will be included here.
-  def canonical_representation(s: String): (Int, List[(BitSet, Cube)]) = {
-    val rows = s
-      .split("\n").toList
-      .flatMap { line =>
-        val row = line.split("#").applyOrElse(0, (_: Int) => "")
-        if (row.trim.isEmpty) None
-        else row match {
+  // given a truth table for each output, calculate the minimal sum of products
+  def solve(
+    input_width: Int,
+    tables: List[(Set[BitSet], Set[BitSet])],
+    m_in_names: Option[IndexedSeq[String]],
+    m_out_names: Option[IndexedSeq[String]],
+  ): Storage = {
+    val output_width = tables.length
+
+    val in_names = m_in_names.getOrElse((0 until input_width).map(i => s"i$i").to(ArraySeq))
+    val out_names = m_out_names.getOrElse((0 until output_width).map(i => s"o$i").to(ArraySeq))
+
+    val (pterms, dterms) = characteristic_function(input_width, tables)
+    val minsums = prime_sums(prime_implicants(pterms, dterms)).minimise
+    val minsums_orig = uncharacterise(input_width, minsums, out_names)
+
+    Storage.create(in_names, minsums_orig)
+  }
+
+  // construct the canonical representation from the user's .truth table. Each
+  // output channel is provided separately as a bitset of pterms and dterms.
+  //
+  // Dont care inputs are expanded into explicit bitsets, taking the user's
+  // ordering into account.
+  def parse(s: String): (Int, List[(Set[BitSet], Set[BitSet])], Option[ArraySeq[String]], Option[ArraySeq[String]]) = {
+    var rows = List.empty[(Cube, Cube)]
+    var names: Array[String] = null
+
+    s.split("\n").reverse.foreach { line =>
+        val row = line.split("#").applyOrElse(0, (_: Int) => "").trim
+        if (row.isEmpty) {}
+        else if (row.startsWith("@")) {
+          names = row.drop(1).trim.split(" ").map(_.trim).filterNot(_ == "|")
+        } else row match {
           case RowPattern(input, output) =>
             // successful parseCube are guaranteed non-empty by the regexp
             val in = Cube.parse(input).toOption.get
@@ -104,7 +101,7 @@ object Main {
                 case Left(err) => throw new IllegalArgumentException(err)
               }
             }
-            Some(in -> out)
+            rows ::= (in -> out)
         }
       }
 
@@ -126,23 +123,84 @@ object Main {
     }
     assert(terms.map(_._1).distinct.length == terms.length, "labels must be unique")
 
+    val output_width = rows.head._2.length
+    val outputs = (0 until output_width).toList.map { i =>
+      val (pterms, dterms) = terms.map { case (bits, c) =>
+          if (c.pterm(i)) (Some(bits), None)
+          else if (c.dterm(i)) (None, Some(bits))
+          else (None, None)
+      }.funzip
+
+      (pterms.toSet, dterms.toSet)
+    }
+
+    val input_width = rows.head._1.length
+
+    val names_ = Option(names).map(_.to(ArraySeq))
+    val input_names = names_.map(_.take(input_width))
+    val output_names = names_.map(_.drop(input_width))
+
+    input_names.foreach { ns =>
+      require(ns.length == input_width, "input names must be provided for all columns")
+    }
+    output_names.foreach { ns =>
+      require(ns.length == output_width, "output names must be provided for all columns")
+    }
+
     // bitsets don't hold their width, so we have to provide it explicitly.
     // we could return cubes for inputs, but that doesn't capture the density.
-    (rows.head._1.length, terms)
+    (input_width, outputs, input_names, output_names)
+  }
+
+  // returns the p-terms and d-terms for the characteristic function for the
+  // provided multi-output canonical form.
+  def characteristic_function(
+    input_width: Int,
+    tables: List[(Set[BitSet], Set[BitSet])]
+  ): (List[Term], List[Term]) = {
+    val output_width = tables.length
+    val charac_width =
+      if (output_width == 1) input_width
+      else input_width + output_width
+
+    tables.zipWithIndex.map {
+      case ((ps, ds), i) =>
+        def t(bs: BitSet): Term = {
+          val bs_ = if (output_width == 1) bs else bs + (input_width + i)
+          Term(Cube.from(bs_, charac_width), Set(bs_))
+        }
+        (ps.map(t), ds.map(t))
+    }.funzip
+  }
+
+  def uncharacterise(
+    input_width: Int,
+    minsums: Set[Set[Cube]],
+    out_names: IndexedSeq[String]
+  ): List[Map[String, Set[Cube]]] = {
+    minsums.toList.map { soln =>
+      if (out_names.length == 1)
+        Map(out_names(0) -> soln)
+      else {
+        (0 until out_names.length).map { o =>
+          val channel = soln.flatMap { mask =>
+            if (mask.pterm(input_width + o)) Some(mask.take(input_width))
+            else None
+          }
+          out_names(o) -> channel
+        }.to(TreeMap)
+      }
+    }
   }
 
   // calculates the unique prime implicants from the canonical representation
   // note that p-terms and d-terms (don't cares) are treated the same to get to
   // the most minimal representation, but then d-terms are filtered out since
   // they are not needed in minimisation.
-  def prime_implicants(rows: List[(BitSet, Cube)], index: Int, input_width: Int): List[Term] = {
-    val rows_ = rows.map {
-      case (row, out) => Term(Cube.from(row, input_width), Set(row)) -> out
-    }
-
-    val pterms = rows_.filter(_._2.pterm(index)).map(_._1)
-    val dterms = rows_.filter(_._2.dterm(index)).map(_._1)
-
+  //
+  // multi-output functions can either call this for each column (independent
+  // solutions) or after computing the characteristic function.
+  def prime_implicants(pterms: List[Term], dterms: List[Term]): List[Term] = {
     // performs a single sweep of the first list of terms against themselves and
     // the second list, returning newly merged terms followed by those that were
     // not affected by the merging.
@@ -233,7 +291,10 @@ final class Cube private(
 ) extends AnyVal {
   import Cube.Bit
 
+  def apply(i: Int): Bit = values(i)
   def length: Int = values.length
+
+  def take(i: Int): Cube = new Cube(values.take(i))
 
   def pterm(i: Int): Boolean = values(i) == Bit.True
   def dterm(i: Int): Boolean = values(i) == Bit.DontCare
@@ -333,19 +394,11 @@ object Cube {
     else Right(Cube(bits))
   }
 
-  def ones(width: Int): Cube = Cube(ArraySeq.fill(width)(Bit.True))
+  def fill(width: Int, bit: Bit): Cube = Cube(ArraySeq.fill(width)(bit))
+  def ones(width: Int): Cube = fill(width, Bit.True)
 
   def all(width: Int): Seq[Cube] = bitsets(width).map(bs => from(bs, width))
   def bitsets(width: Int): Seq[BitSet] = (0 until (1 << width)).map(bits => BitSet.fromBitMaskNoCopy(Array(bits)))
-
-  // very simple cost function roughly the BJT transistor count in a direct
-  // implementation of this as 2-level logic with inverter sharing.
-  def cost(cubes: Set[Cube]): Int = {
-    val or = if (cubes.size == 1) 0 else cubes.size
-    val ands = cubes.map(c => if (c.pterms == 1) 0 else c.pterms).sum
-    val invs = cubes.flatMap(_.zterms).size
-    or + ands + invs
-  }
 
   implicit val encoder: jzon.Encoder[Cube] = jzon.Encoder[String].contramap(_.render)
   implicit val decoder: jzon.Decoder[Cube] = jzon.Decoder[String].emap(parse(_))
@@ -403,7 +456,7 @@ case class PofS(ors: Set[Set[Cube]]) {
   require(ors.nonEmpty)
   require(ors.forall(_.nonEmpty))
 
-  def minimise: SofP = SofP {
+  def minimise: Set[Set[Cube]] = {
     def rec(factors: Set[Cube], remain: Set[Set[Cube]]): Set[Set[Cube]] = {
       val others = remain.filter(ss => !ss.overlaps(factors))
       if (others.isEmpty) Set(factors)
@@ -418,79 +471,65 @@ case class PofS(ors: Set[Set[Cube]]) {
       cs: Set[Cube] => if (cs.size == 1) Left(cs.head) else Right(cs)
     }
     val results = rec(nfactors, nremain)
+    // the subsetOf filter is roughly what the papers call "irredundant"
     results.filterNot(res => results.exists(t => (t ne res) && t.subsetOf(res)) )
   }
 
 }
 
-// Sum of Products (OR (AND ...) ...)
-case class SofP(values: Set[Set[Cube]]) {
-  // we also take the liberty of ordering the output by the minimal cost
-  // function to increase the likelihood that downstream consumers can get
-  // decent results by truncation.
-  def symbolic(lookup: Map[Cube, CubeSym]): List[List[CubeSym]] =
-    values.toList.sortBy(Cube.cost(_)).map(_.toList.sortBy(_.render).map(lookup(_)))
-}
-object SofP {
-  // TODO may need to rethink this format. Perhaps it is best to output the
-  // Logic trees to simplify inverted outputs, and group minsums together for
-  // multi-output by always using the characteristic function. Single output
-  // results could be done in separate passes, maybe as a parameter. It's still
-  // nice to have this human readable format, though, so maybe just have a way
-  // to indicate that something is an inverted input and retain the visual
-  // encoding.
+// The file format for minimal sums of products. This uses the visualisation
+// conventions of research papers on the topic (2-level logic on cubes), rather
+// than the boolean AST.
+//
+// solutions are keyed by the output channel name.
+case class Storage(
+  input_names: List[String],
+  symbols: Map[CubeSym, Cube],
+  // dterms: List[List[Cube]],
+  solutions: List[Map[String, Set[CubeSym]]]
+) {
+  private val fast_names = input_names.toArray
+  def name(i: Int): String = fast_names(i)
 
-  // disk format for multi-output SofP that uses a common dictionary for the bitsets
-  // the nested lists are: channel -> sum -> product -> cube
-  //
-  // note that the least significant output bit is index 0 i.e. the reverse of
-  // the truth table ordering.
-  case class Storage(
-    input_width: Int,
-    // input_names: List[String],
-    output_width: Int,
-    // output_names: List[String],
-    symbols: Map[CubeSym, Cube],
-    // dterms: List[List[Cube]],
-    sums_of_products: List[List[List[CubeSym]]],
-    sums_of_products_inv: List[List[List[CubeSym]]],
-  ) {
-    require(sums_of_products.length == sums_of_products_inv.length)
+  val input_width: Int = fast_names.size
+  val output_width: Int = solutions.head.size
 
-    // each channel provides a list of candidate logics
-    def asLogic: List[List[Logic]] = (sums_of_products.zip(sums_of_products_inv)).map {
-      case (out, iout) =>
-        def conv(soln: List[CubeSym]): Logic = {
-          Logic.Or(soln.map { c => symbols(c).asLogic }.toSet)
+  def asLogic: List[Map[String, Logic]] =
+    solutions.map { soln =>
+      soln.map { case (out, sop) =>
+        out -> Logic.Or {
+          sop.map { ps =>
+            Logic.And(symbols(ps).asLogic)
+          }
         }
-        out.map(conv(_)) ++ iout.map(s => Logic.Inv(conv(s)))
+      }
     }
-  }
-  object Storage {
-    implicit val encoder: jzon.Encoder[Storage] = jzon.Encoder.derived
-    implicit val decoder: jzon.Decoder[Storage] = jzon.Decoder.derived
+}
+object Storage {
+  implicit val encoder: jzon.Encoder[Storage] = jzon.Encoder.derived
+  implicit val decoder: jzon.Decoder[Storage] = jzon.Decoder.derived
 
-    def create(
-      input_width: Int,
-      mins: List[SofP],
-      mins_inv: List[SofP]
-    ): Storage = {
-      val symbols_ = (mins ++ mins_inv)
-        .flatMap(_.values.flatten)
-        .distinct
-        .sortBy(_.render)
-        .zip(CubeSym.alpha)
-      val symbols = symbols_.toMap
-      val lookup = symbols_.map(_.swap).to(ListMap)
+  def create(
+    inputs: Seq[String],
+    mins: List[Map[String, Set[Cube]]]
+  ): Storage = {
+    val lookup_ = mins
+      .flatMap(_.values.flatten)
+      .distinct
+      .sortBy(_.render)
+      .zip(CubeSym.alpha)
+    val lookup = lookup_.toMap
+    val symbols = lookup_.map(_.swap).to(ListMap)
 
-      Storage(
-        input_width,
-        mins.length,
-        lookup,
-        mins.map(_.symbolic(symbols)),
-        mins_inv.map(_.symbolic(symbols))
-      )
-    }
+    Storage(
+      inputs.toList,
+      symbols,
+      mins.map { soln =>
+        soln.map { case (name, sop) =>
+          name -> sop.toList.sortBy(_.render).map(lookup(_)).to(ListSet)
+        }
+      }
+    )
   }
 }
 

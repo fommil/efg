@@ -1,13 +1,10 @@
 {
-  "input_width" : 4,
-  "output_width" : 1,
+  "input_names" : ["i0", "i1", "i2", "i3"],
   "symbols" : {
-    "A" : "--00",
-    "B" : "--11",
-    "C" : "-0--",
-    "D" : "-101",
-    "E" : "-110"
+    "A" : "-101",
+    "B" : "-110"
   },
-  "sums_of_products" : [[["D", "E"]]],
-  "sums_of_products_inv" : [[["A", "B", "C"]]]
+  "solutions" : [{
+    "o0" : ["A", "B"]
+  }]
 }

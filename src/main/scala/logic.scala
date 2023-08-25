@@ -44,7 +44,6 @@ import java.nio.file.Files
 import scala.collection.immutable.BitSet
 
 import fommil.util._
-import mccluskey.SofP
 
 import Logic._
 
@@ -396,19 +395,12 @@ object Main {
     require(args.length >= 1, "an input file must be provided")
     val in = new File(args(0))
     require(in.isFile(), s"$in must exist")
-    val input = Files.readString(in.toPath, UTF_8)
+    // val input = Files.readString(in.toPath, UTF_8)
 
-    val design = jzon.Decoder[SofP.Storage].decodeJson(input) match {
-      case Left(err) => throw new IllegalArgumentException(err)
-      case Right(as) => as
-    }
-
-    val _ = alpha_syms
-      .take(design.input_width)
-      .map(_.toLowerCase)
-      .zipWithIndex
-      .map(_.swap)
-      .toMap
+    // val design = jzon.Decoder[SofP.Storage].decodeJson(input) match {
+    //   case Left(err) => throw new IllegalArgumentException(err)
+    //   case Right(as) => as
+    // }
 
     ???
   }

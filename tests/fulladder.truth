@@ -27,7 +27,7 @@
 #
 # (XOR may also be replaced with NOR)
 #
-# A B Ci | Co S
+@ A B Ci | Co S
   0 0 0  | 0  0
   0 0 1  | 0  1
   0 1 0  | 0  1
