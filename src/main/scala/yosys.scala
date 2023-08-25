@@ -123,11 +123,15 @@ object Netlist {
   implicit val encoder: jzon.Encoder[Netlist] = jzon.Encoder.derived
   implicit val decoder: jzon.Decoder[Netlist] = jzon.Decoder.derived
 
-  def from(name: String, outputs: List[Logic]): Netlist = {
+  def from(
+    name: String,
+    names: Map[In, String],
+    outputs: Map[String, Logic]
+  ): Netlist = {
     // all nodes are single output, so we can assign each node an index which
     // will be the connection identifier for its output.
 
-    val lookup = outputs.flatMap(_.nodes).distinct.zipWithIndex.toMap
+    val lookup = outputs.values.flatMap(_.nodes).toSet.zipWithIndex.toMap
     def con(node: Logic): Connection = node match {
       case True => Literal("1")
       case Inv(True) => Literal("0")
@@ -164,11 +168,11 @@ object Netlist {
           Cell("$reduce_or", Map.empty, Map("A" -> "input", "Y" -> "output"),
             Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
       }}
-      case (n: In, y) => Left { n.name -> Port("input", List(y)) }
+      case (n: In, y) => Left { names(n) -> Port("input", List(y)) }
     }
 
-    val signals = outputs.zipWithIndex.map {
-      case (node, i) => s"$i" -> Port("output", List(con(node)))
+    val signals = outputs.map {
+      case (n, node) => n -> Port("output", List(con(node)))
     }
 
     Netlist(Map(name -> Module(ports.toMap ++ signals, cells.toMap)))

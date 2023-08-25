@@ -291,11 +291,10 @@ final class Cube private(
   }
 
   def asLogic: Logic = Logic.And {
-    val names = alpha_syms.take(values.length).map(_.toLowerCase).toArray
     values.zipWithIndex.flatMap {
       case (Bit.DontCare, _) => None
-      case (Bit.True, i) => Some(Logic.In(i, names(i)))
-      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i, names(i))))
+      case (Bit.True, i) => Some(Logic.In(i))
+      case (Bit.False, i) => Some(Logic.Inv(Logic.In(i)))
     }.toSet
   }
 
@@ -433,6 +432,14 @@ case class SofP(values: Set[Set[Cube]]) {
     values.toList.sortBy(Cube.cost(_)).map(_.toList.sortBy(_.render).map(lookup(_)))
 }
 object SofP {
+  // TODO may need to rethink this format. Perhaps it is best to output the
+  // Logic trees to simplify inverted outputs, and group minsums together for
+  // multi-output by always using the characteristic function. Single output
+  // results could be done in separate passes, maybe as a parameter. It's still
+  // nice to have this human readable format, though, so maybe just have a way
+  // to indicate that something is an inverted input and retain the visual
+  // encoding.
+
   // disk format for multi-output SofP that uses a common dictionary for the bitsets
   // the nested lists are: channel -> sum -> product -> cube
   //

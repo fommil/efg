@@ -203,6 +203,12 @@ object LocalRule {
   //      A'.B'.C = (A + B + C')' (outer Inv counts less than an inner one)
   //      A' + B' + C = (A.B.C')'
 
+  // TODO complementation of nested AND/OR nodes. The AND/OR constructors do not
+  // consider this case. Like elimination, it needs to be run from the top.
+
+  // TODO TopRule, for those that only make sense to run on the outputs. Should
+  // pretty much look the same as LocalRule, so maybe a boolean property.
+
   // TODO detect and remove dontcares
 
   // TODO XOR / NAND expansions
@@ -224,7 +230,7 @@ sealed trait Logic { self =>
   final def render(top: Boolean): String = self match {
     case True => "1"
     case Inv(True) => "0"
-    case In(_, n) => n
+    case In(i) => s"i$i"
     case Inv(e) => e.render(false) + "'"
     case And(entries) => entries.map(_.render(false)).mkString("·")
     case Or(entries) =>
@@ -246,7 +252,7 @@ sealed trait Logic { self =>
 
   final def eval(input: BitSet): Boolean = self match {
     case True => true
-    case In(a, _) => input(a)
+    case In(a) => input(a)
     case Inv(e) => !e.eval(input)
     case And(as) => as.forall(_.eval(input))
     case Or(os) => os.exists(_.eval(input))
@@ -312,7 +318,7 @@ object Logic {
   // constructor enforces complementation A + A' = 1
   case class Or  private(entries: Set[Logic]) extends Logic
 
-  case class In  (channel: Int, name: String) extends Logic
+  case class In  (channel: Int) extends Logic
 
   // a placemarker (along with Inv(True)) for nodes that can be collapsed
   case object True extends Logic

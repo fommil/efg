@@ -2,7 +2,6 @@ package logic
 
 import scala.collection.immutable.BitSet
 
-import fommil.util._
 import internal._
 
 import LocalRule._
@@ -11,12 +10,13 @@ import Logic._
 object LogicGen {
   // self-referenced must be in a Gen.delay
   private def impl(depth: Int): Gen[Logic] = {
+    val max_inputs = 8
     val max_depth = 5
     val max_width = 4
 
     lazy val in: Gen[Logic] = {
       // realistic mixture of inverted circuit inputs
-      val raw: Gen[Logic] = Gen.choose(0, names.length - 1).map(i => In(i, names(i)))
+      val raw: Gen[Logic] = Gen.choose(0, max_inputs - 1).map(i => In(i))
       Gen.oneOf(raw, raw.map(Inv(_)))
     }
 
@@ -34,7 +34,6 @@ object LogicGen {
       Gen.delay(or) -> 4
     )
   }
-  private val names: Array[String] = alpha_syms.map(_.toLowerCase).take(8).toArray
   lazy val gen: Gen[Logic] = impl(0)
 
   lazy val shrinker: Shrink[Logic] = Shrink {
@@ -70,11 +69,11 @@ class LogicTest extends Test {
   // below as a standalone test, committed along with the fix.
 
   // common entries...
-  private val a = In(0, "a")
-  private val b = In(1, "b")
+  private val a = In(0)
+  private val b = In(1)
 
   // a·(a + b)
-  def testEliminate1: Unit = assertLocalRule(Eliminate, And(a, Or(a, Inv(a))))
+  def testEliminate1: Unit = assertLocalRule(Eliminate, And(a, Or(a, b)))
 
   // (a·b + a)
   def testEliminate2: Unit = assertLocalRule(Eliminate, Or(And(a, b), a))
