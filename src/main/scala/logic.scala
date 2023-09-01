@@ -6,7 +6,9 @@
 // (Brayton90), "SOCRATES: A System for AutomatiCally Synthesizing and
 // Optimizing Combinational Logic" (Gregory88) by applying metarules. However,
 // those papers are devoid of actual implementable details, so what we do is
-// maintain a list of manual rules that run on the AST of the circuit.
+// maintain a list of manual rules that run on the AST of the circuit. Many of
+// the techniques are also documented in "Switching Theory for Logic Synthesis"
+// by Sasao99.
 //
 // TODO We explore the space of possible moves using a form of simulated
 // annealing with a fixed limit of scouts. Rules may be combined in each step.
@@ -208,7 +210,14 @@ object LocalRule {
   // TODO TopRule, for those that only make sense to run on the outputs. Should
   // pretty much look the same as LocalRule, so maybe a boolean property.
 
-  // TODO detect and remove dontcares
+  // TODO detect decomposable sub-circuits, possibly replace by
+  //      decoders/encoders with a simpler core logic
+
+  // TODO detect and remove dontcares (related to decomposition)
+
+  // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
+
+  // TODO use simulated annealing to build a transduction database
 
   // TODO XOR / NAND expansions
 }
