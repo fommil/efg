@@ -13,22 +13,9 @@
 // TODO We explore the space of possible moves using a form of simulated
 // annealing with a fixed limit of scouts. Rules may be combined in each step.
 //
-// Simple objective functions may be provided, such as reducing
-//
-// - TODO component count
-// - TODO component cost
-// - TODO power consumption
-// - TODO critical path time
-//
-// For a limited set of logic families, such as
-//
-//   - TODO RTL https://en.wikipedia.org/wiki/Resistor-transistor_logic
-//   - TODO DTL https://en.wikipedia.org/wiki/Diode-transistor_logic
-//   - TODO TTL https://en.wikipedia.org/wiki/Transistor-transistor_logic
-//   - TODO CMOS https://en.wikipedia.org/wiki/CMOS
-//   - TODO Sky130 https://github.com/google/skywater-pdk
-//
-// See https://en.wikipedia.org/wiki/Logic_family for more.
+// Simple objective functions may be provided, such as reducing component count,
+// component cost, power consumption or critical path time for various
+// https://en.wikipedia.org/wiki/Logic_family
 //
 // The objective functions are incredibly simple and do not fully simulate the
 // circuits so there may be all kinds of power dissipation issues, especially
@@ -40,8 +27,6 @@
 package logic
 
 import java.io.File
-import java.nio.charset.StandardCharsets.UTF_8
-import java.nio.file.Files
 
 import scala.collection.immutable.BitSet
 
@@ -233,6 +218,54 @@ object GlobalRule {
   // TODO split AND / OR gates that have sub-sets that can be shared
 }
 
+trait Objective {
+  def measure(fan_out: Map[Logic, Int]): Double
+}
+object Objective {
+  // https://en.wikipedia.org/wiki/Diode_logic
+  // https://en.wikipedia.org/wiki/Resistor-transistor_logic
+  // https://en.wikipedia.org/wiki/Diode-transistor_logic
+  //
+  // Diode Logic only implements active-high AND / OR, RTL only implements INV /
+  // NOR using npn transistors (and can build all other gates from there), and
+  // DTL expands on both, using pnp in NOR gates.
+  //
+  // The relative weights of each component type are user provided.
+  //
+  // Negative voltage sinks and their associated resistors are not considered,
+  // nor are capacitors, which may be used to speed up transistor switching.
+  //
+  // Old-school RTL NOR may be preferred for 2 or 3 input NOR, which uses a
+  // voltage divider instead of diodes.
+  case class DTL_Components(
+    resistor: Double,
+    npn: Double,
+    diode: Double,
+    rtl: Boolean
+  ) extends Objective {
+    // TODO add transistor+diode to boost weak fan-out signals.
+    //
+    // INV is implemented as a common emitter NPN transistor. Two and three
+    // input NOR may be implemented as INV with a voltage divider.
+    //
+    override def measure(fan_out: Map[Logic, Int]): Double = fan_out.keys.map(calc).sum
+
+    // TODO intermediate AST, reused for the schematic
+    def calc(node: Logic): Double = node match {
+      case True | In(_) => 0
+      case Inv(or @ Or(es)) if rtl & es.size < 4 => (2 + es.size) * resistor + npn - calc(or)
+      case Inv(_) => 2 * resistor + npn
+      case Or(es) => resistor + es.size * diode
+      case And(es) => resistor + es.size * diode
+    }
+  }
+
+  //   - TODO TTL https://en.wikipedia.org/wiki/Transistor-transistor_logic
+  //   - TODO CMOS https://en.wikipedia.org/wiki/CMOS
+  //   - TODO Sky130 https://github.com/google/skywater-pdk
+
+}
+
 // combinatorial logic, cycles are not permitted (caller's responsibility).
 sealed trait Logic { self =>
   final def render(top: Boolean): String = self match {
@@ -311,22 +344,30 @@ sealed trait Logic { self =>
 
 }
 object Logic {
-  // caching hashCode (and using in equals) may be beneficial for performance
+  // using hashCode in equals may be beneficial for performance
 
   // constructor enforces involution: (A')' = A
-  case class Inv private(entry: Logic) extends Logic
+  case class Inv private(entry: Logic) extends Logic {
+    override val hashCode: Int = 17 * entry.hashCode
+  }
 
   // structure enforces indempotency A . A = A
   // constructor enforces identity A . 1 = A
   // constructor enforces complementation A . A' = 0
-  case class And private(entries: Set[Logic]) extends Logic
+  case class And private(entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = entries.hashCode
+  }
 
   // structure enforces indempotency A + A = A
   // constructor enforces identity A + 0 = A
   // constructor enforces complementation A + A' = 1
-  case class Or  private(entries: Set[Logic]) extends Logic
+  case class Or  private(entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = entries.hashCode
+  }
 
-  case class In  (channel: Int) extends Logic
+  case class In  (channel: Int) extends Logic {
+    override def hashCode: Int = channel.hashCode
+  }
 
   // a placemarker (along with Inv(True)) for nodes that can be collapsed
   case object True extends Logic
