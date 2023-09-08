@@ -202,6 +202,13 @@ object LocalRule {
 
   // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
 
+  // TODO add the two standard test cases that seem to be used over and over in
+  //      expand/reduce techniques like transduction.
+
+  // TODO calculate the alternative msop using 2-bit input decoders which
+  //      doubles the size of the inputs but typically reduces the size of the
+  //      sop network (~25% according to the literature).
+
   // TODO use simulated annealing to build a transduction database
 
   // TODO XOR / NAND expansions
