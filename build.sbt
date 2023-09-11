@@ -2,7 +2,7 @@ organization := "com.fommil"
 name := "electronics"
 
 licenses := List(License.GPL3_or_later)
-ThisBuild / scalaVersion := "2.13.11"
+ThisBuild / scalaVersion := "2.13.12"
 
 libraryDependencies += "com.fommil" %% "jzon" % "1.1.0"
 

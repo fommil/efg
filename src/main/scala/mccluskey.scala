@@ -42,9 +42,9 @@ import fommil.util._
 import jzon.syntax._
 import logic.Logic
 
-object Main {
-  private val RowPattern = "^([ 01xX]+)([|][ 01xX]+)?$".r
+import McCluskey._
 
+object Main {
   def main(args: Array[String]): Unit = {
     require(args.length == 1, "an input file must be provided")
     val in = new File(args(0))
@@ -56,6 +56,10 @@ object Main {
 
     System.out.println(out.toJsonPretty)
   }
+}
+
+object McCluskey {
+  private val RowPattern = "^([ 01xX]+)([|][ 01xX]+)?$".r
 
   // given a truth table for each output, calculate the minimal sum of products
   def solve(

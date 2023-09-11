@@ -10,8 +10,8 @@
 // the techniques are also documented in "Switching Theory for Logic Synthesis"
 // by Sasao99.
 //
-// TODO We explore the space of possible moves using a form of simulated
-// annealing with a fixed limit of scouts. Rules may be combined in each step.
+// We explore the space of possible moves using a form of simulated annealing
+// with a fixed limit of scouts.
 //
 // Simple objective functions may be provided, such as reducing component count,
 // component cost, power consumption or critical path time for various
@@ -27,10 +27,13 @@
 package logic
 
 import java.io.File
+import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.Files
 
 import scala.collection.immutable.BitSet
 
 import fommil.util._
+import mccluskey.McCluskey
 
 import Logic._
 
@@ -73,6 +76,9 @@ object LocalRule {
   //
   // A.(A + B) = A
   // A + (A.B) = A
+  //
+  // Although technically a LocalRule, it is always optimal to perform this on
+  // the root nodes.
   object Eliminate extends LocalRule {
     // The core rule logic exposed for other rules to use directly when there is
     // an expected immediate opportunity for elimination.
@@ -192,14 +198,6 @@ object LocalRule {
   // TODO complementation of nested AND/OR nodes. The AND/OR constructors do not
   // consider this case. Like elimination, it needs to be run from the top.
 
-  // TODO TopRule, for those that only make sense to run on the outputs. Should
-  // pretty much look the same as LocalRule, so maybe a boolean property.
-
-  // TODO detect decomposable sub-circuits, possibly replace by
-  //      decoders/encoders with a simpler core logic
-
-  // TODO detect and remove dontcares (related to decomposition)
-
   // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
 
   // TODO add the two standard test cases that seem to be used over and over in
@@ -211,7 +209,6 @@ object LocalRule {
 
   // TODO use simulated annealing to build a transduction database
 
-  // TODO XOR / NAND expansions
 }
 
 trait GlobalRule {
@@ -452,17 +449,73 @@ object Main {
     require(args.length >= 1, "an input file must be provided")
     val in = new File(args(0))
     require(in.isFile(), s"$in must exist")
-    // val input = Files.readString(in.toPath, UTF_8)
+    val input = Files.readString(in.toPath, UTF_8)
 
-    // val design = jzon.Decoder[SofP.Storage].decodeJson(input) match {
-    //   case Left(err) => throw new IllegalArgumentException(err)
-    //   case Right(as) => as
-    // }
+    val minsums = {
+      val (input_width, tables, user_in_names, user_out_names) = McCluskey.parse(input)
+      McCluskey.solve(input_width, tables, user_in_names, user_out_names)
+    }
 
-    ???
+    // Eliminate is run manually after every step
+    val local_rules = List(LocalRule.Factor, LocalRule.UnNest)
+    val max_surface = 25
+    val max_steps = 1000
+
+    val obj: Objective = Objective.DTL_Components(
+      resistor = 0,
+      npn = 1,
+      diode = 0.75,
+      rtl = true
+    )
+
+    // would be nice to keep track of the rules that were applied
+    var surface = minsums.asLogic.map(elim(_)).map { soln => soln -> obj.measure(fanout(soln)) }
+    // TODO add variants with truth table inverted for outputs with more than half true
+
+    System.out.println("baseline = " + surface.map(_._2).min)
+
+    var step = 0
+    var converged = false
+
+    while (step < max_steps && !converged) {
+      val surface_ = surface
+      // System.out.println(s"step $step surface ${surface.size}")
+
+      surface.foreach { case (last_soln, _) =>
+        val nodes = last_soln.values.toList.distinct
+
+        local_rules.foreach { rule =>
+          nodes.foreach { node =>
+            rule.perform(node).foreach { repl =>
+              // System.out.println(s"replacing $node with $repl via $rule")
+              val update = elim(replace(last_soln, node, repl))
+              surface ::= (update -> obj.measure(fanout(update)))
+            }
+          }
+        }
+
+        // TODO apply global rules
+      }
+      surface = surface.sortBy(_._2).take(max_surface)
+      step += 1
+      if (surface eq surface_) converged = true
+    }
+
+    System.out.println(surface.head)
   }
+
+  def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
+    channels.values.toList.flatMap(_.nodes).counts
+
+  def replace(channels: Map[String, Logic], from: Logic, to: Logic): Map[String, Logic] = channels.map {
+    case (name, circuit) => name -> circuit.replace(from, to)
+  }
+
+  def elim(channels: Map[String, Logic]): Map[String, Logic] =
+    channels.map { case (name, circuit) => name -> LocalRule.Eliminate.eliminate(circuit) }
+
 }
 
 // Local Variables:
-// scala-compile-suggestion: "sbt \"runMain logic.Main tests/fulladder.minsums.json\""
+// scala-compile-suggestion: "sbt \"runMain logic.Main tests/fulladder.truth\""
 // End:
