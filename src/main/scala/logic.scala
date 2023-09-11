@@ -495,6 +495,10 @@ object Main {
     var surface = minsums.asLogic.map { soln => soln -> obj.measure(fanout(soln)) }
     // TODO add variants with truth table inverted for outputs with more than half true
 
+    surface.tail.foreach { needle =>
+      assert(verify(minsums.input_width, surface.head._1, needle._1))
+    }
+
     // TODO calculate the alternative msop using 2-bit input decoders which
     //      doubles the size of the inputs but typically reduces the size of the
     //      sop network (~25% according to the literature).
@@ -522,7 +526,7 @@ object Main {
                 val update = last_soln.map {
                   case (name, circuit) => name -> circuit.replace(node, repl)
                 }
-                // TODO verify that the logic is the same!
+                assert(verify(minsums.input_width, surface.head._1, update))
                 surface ::= (update -> obj.measure(fanout(update)))
               }
             }
@@ -541,6 +545,18 @@ object Main {
 
   def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
     channels.values.toList.flatMap(_.nodes).counts
+
+  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Boolean = {
+    (0 until (1 << input_width)).foreach { i =>
+      val in = BitSet.fromBitMask(Array(i))
+      for {
+        channel <- orig.keys
+      } {
+        if (orig(channel).eval(in) != update(channel).eval(in)) return false
+      }
+    }
+    true
+  }
 
 }
 
