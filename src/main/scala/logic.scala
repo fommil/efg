@@ -191,21 +191,40 @@ object LocalRule {
     }
   }
 
-  // TODO deMorgan, minimise Inv in AND/OR nodes
-  //      A'.B'.C = (A + B + C')' (outer Inv counts less than an inner one)
-  //      A' + B' + C = (A.B.C')'
+  // Apply deMorgan's rule
+  //
+  //   A'.B'.C = (A + B + C')'
+  //   A' + B' + C = (A.B.C')'
+  //
+  // This rule always flips, so can lead to infinite cycles and is therefore
+  // costly to search. Simple triggers such as counts of inverted contents don't
+  // tend to reach the optimal circuits.
+  object DeMorgan extends LocalRule {
+    def perform(node: Logic): List[Logic] = node match {
+      case And(nodes) =>
+        val (norm, inv) = nodes.partitionMap {
+          case Inv(e) => Right(e)
+          case e => Left(e)
+        }
+        List(Inv(Or(norm.map(Inv(_)) ++ inv)))
 
-  // TODO complementation of nested AND/OR nodes. The AND/OR constructors do not
-  // consider this case. Like elimination, it needs to be run from the top.
+      case Or(nodes) =>
+        val (norm, inv) = nodes.partitionMap {
+          case Inv(e) => Right(e)
+          case e => Left(e)
+        }
+        List(Inv(And(norm.map(Inv(_)) ++ inv)))
+
+      case _ => Nil
+    }
+  }
+
+  // TODO it feels like there is further elimination possible here...
+  // i1'·i2'·i0 + (i1' + i0 + i2)' + (i2' + i0 + i1)' + (i0' + i1' + i2')'
 
   // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
-
-  // TODO add the two standard test cases that seem to be used over and over in
-  //      expand/reduce techniques like transduction.
-
-  // TODO calculate the alternative msop using 2-bit input decoders which
-  //      doubles the size of the inputs but typically reduces the size of the
-  //      sop network (~25% according to the literature).
+  //      including the two standard test cases that seem to be used over and
+  //      over in expand/reduce techniques like transduction.
 
   // TODO use simulated annealing to build a transduction database
 
@@ -272,18 +291,22 @@ object Objective {
 
 // combinatorial logic, cycles are not permitted (caller's responsibility).
 sealed trait Logic { self =>
-  final def render(top: Boolean): String = self match {
+  private final def render(ands: Boolean, ors: Boolean): String = self match {
     case True => "1"
     case Inv(True) => "0"
     case In(i) => s"i$i"
-    case Inv(e) => e.render(false) + "'"
-    case And(entries) => entries.map(_.render(false)).mkString("·")
+    case Inv(e) => e.render(false, false) + "'"
+    case And(entries) =>
+      val parts = entries.map(_.render(true, false))
+      if (ors) parts.mkString("·")
+      else parts.mkString("(", "·", ")")
     case Or(entries) =>
-      val parts = entries.map(_.render(false))
-      if (top) parts.mkString(" + ")
+      val parts = entries.map(_.render(false, true))
+      if (ands) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
   }
-  final def render: String = render(true)
+  final def render: String = render(true, true)
+  override final def toString: String = render
 
   final def size: Int = self match {
     case True => 1
@@ -292,8 +315,6 @@ sealed trait Logic { self =>
     case And(es) => 1 + es.map(_.size).sum
     case Or(es) => 1 + es.map(_.size).sum
   }
-
-  override final def toString: String = render(false)
 
   final def eval(input: BitSet): Boolean = self match {
     case True => true
@@ -456,7 +477,10 @@ object Main {
       McCluskey.solve(input_width, tables, user_in_names, user_out_names)
     }
 
-    val local_rules = List(LocalRule.Factor, LocalRule.UnNest, LocalRule.Eliminate)
+    val local_rules = {
+      import LocalRule._
+      List(Factor, UnNest, Eliminate, DeMorgan)
+    }
     val max_surface = 25
     val max_steps = 1000
 
@@ -471,26 +495,36 @@ object Main {
     var surface = minsums.asLogic.map { soln => soln -> obj.measure(fanout(soln)) }
     // TODO add variants with truth table inverted for outputs with more than half true
 
+    // TODO calculate the alternative msop using 2-bit input decoders which
+    //      doubles the size of the inputs but typically reduces the size of the
+    //      sop network (~25% according to the literature).
+
     System.out.println("baseline = " + surface.map(_._2).min)
 
     var step = 0
     var converged = false
+
+    // note what has been done before (should probably cap this)
+    var local_rejects = Set.empty[(Map[String, Logic], LocalRule, Logic)]
 
     while (step < max_steps && !converged) {
       val surface_ = surface
       // System.out.println(s"step $step surface ${surface.size}")
 
       surface.foreach { case (last_soln, _) =>
-        val nodes = last_soln.values.toList.distinct
-
+        val nodes = last_soln.values.toList.flatMap(_.nodes).distinct
         local_rules.foreach { rule =>
           nodes.foreach { node =>
-            rule.perform(node).foreach { repl =>
-              // System.out.println(s"replacing $node with $repl via $rule")
-              val update = last_soln.map {
-                case (name, circuit) => name -> circuit.replace(node, repl)
+            if (!local_rejects.contains((last_soln, rule, node))) {
+              local_rejects += ((last_soln, rule, node))
+              rule.perform(node).foreach { repl =>
+                // System.out.println(s"replacing $node with $repl via $rule")
+                val update = last_soln.map {
+                  case (name, circuit) => name -> circuit.replace(node, repl)
+                }
+                // TODO verify that the logic is the same!
+                surface ::= (update -> obj.measure(fanout(update)))
               }
-              surface ::= (update -> obj.measure(fanout(update)))
             }
           }
         }
