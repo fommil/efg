@@ -266,6 +266,17 @@ object Objective {
     diode: Double,
     rtl: Boolean
   ) extends Objective {
+    // TODO XOR gate when we spot the relevant shapes
+    //
+    // x ⊕ y = (x · y') + (x' · y)
+    // x ⊕ y = (x + y) · (x' + y')
+    // x ⊕ y = (x + y) · (x · y)'
+    //
+    // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
+    // cost = 3.R + 2.T + 2.D.N with fan-in limits
+    //
+    // or maybe this would be best encoded at the Logic level?
+
     // TODO add transistor+diode to boost weak fan-out signals.
     //
     // INV is implemented as a common emitter NPN transistor. Two and three
