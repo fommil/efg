@@ -356,7 +356,8 @@ sealed trait Logic { self =>
       }
     }
 
-  def nodes: List[Logic] = {
+  // this gets called so much it's worth caching
+  val nodes: List[Logic] = {
     def nodes_(es: Iterable[Logic]): List[Logic] = es.toList.flatMap(_.nodes)
     self match {
       case True => self :: Nil
@@ -369,11 +370,13 @@ sealed trait Logic { self =>
 
 }
 object Logic {
-  // using hashCode in equals may be beneficial for performance
-
   // constructor enforces involution: (A')' = A
   case class Inv private(entry: Logic) extends Logic {
     override val hashCode: Int = 17 * entry.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: Inv => hashCode == thon.hashCode && entry == thon.entry
+      case _ => false
+    }
   }
 
   // structure enforces indempotency A . A = A
@@ -381,6 +384,10 @@ object Logic {
   // constructor enforces complementation A . A' = 0
   case class And private(entries: Set[Logic]) extends Logic {
     override val hashCode: Int = entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: And => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
   }
 
   // structure enforces indempotency A + A = A
@@ -388,11 +395,13 @@ object Logic {
   // constructor enforces complementation A + A' = 1
   case class Or  private(entries: Set[Logic]) extends Logic {
     override val hashCode: Int = entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: Or => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
   }
 
-  case class In  (channel: Int) extends Logic {
-    override def hashCode: Int = channel.hashCode
-  }
+  case class In  (channel: Int) extends Logic
 
   // a placemarker (along with Inv(True)) for nodes that can be collapsed
   case object True extends Logic
