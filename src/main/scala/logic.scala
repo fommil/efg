@@ -456,8 +456,7 @@ object Main {
       McCluskey.solve(input_width, tables, user_in_names, user_out_names)
     }
 
-    // Eliminate is run manually after every step
-    val local_rules = List(LocalRule.Factor, LocalRule.UnNest)
+    val local_rules = List(LocalRule.Factor, LocalRule.UnNest, LocalRule.Eliminate)
     val max_surface = 25
     val max_steps = 1000
 
@@ -469,7 +468,7 @@ object Main {
     )
 
     // would be nice to keep track of the rules that were applied
-    var surface = minsums.asLogic.map(elim(_)).map { soln => soln -> obj.measure(fanout(soln)) }
+    var surface = minsums.asLogic.map { soln => soln -> obj.measure(fanout(soln)) }
     // TODO add variants with truth table inverted for outputs with more than half true
 
     System.out.println("baseline = " + surface.map(_._2).min)
@@ -488,7 +487,9 @@ object Main {
           nodes.foreach { node =>
             rule.perform(node).foreach { repl =>
               // System.out.println(s"replacing $node with $repl via $rule")
-              val update = elim(replace(last_soln, node, repl))
+              val update = last_soln.map {
+                case (name, circuit) => name -> circuit.replace(node, repl)
+              }
               surface ::= (update -> obj.measure(fanout(update)))
             }
           }
@@ -496,7 +497,7 @@ object Main {
 
         // TODO apply global rules
       }
-      surface = surface.sortBy(_._2).take(max_surface)
+      surface = surface.distinctBy(_._1).sortBy(_._2).take(max_surface)
       step += 1
       if (surface eq surface_) converged = true
     }
@@ -506,13 +507,6 @@ object Main {
 
   def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
     channels.values.toList.flatMap(_.nodes).counts
-
-  def replace(channels: Map[String, Logic], from: Logic, to: Logic): Map[String, Logic] = channels.map {
-    case (name, circuit) => name -> circuit.replace(from, to)
-  }
-
-  def elim(channels: Map[String, Logic]): Map[String, Logic] =
-    channels.map { case (name, circuit) => name -> LocalRule.Eliminate.eliminate(circuit) }
 
 }
 
