@@ -530,6 +530,7 @@ object Main {
 
     // note what has been done before (should probably cap this)
     var local_rejects = Set.empty[(Map[String, Logic], LocalRule, Logic)]
+    var local_rejects_ = Set.empty[Map[String, Logic]]
 
     while (step < max_steps && !converged) {
       val surface_ = surface
@@ -546,8 +547,10 @@ object Main {
                 val update = last_soln.map {
                   case (name, circuit) => name -> circuit.replace(node, repl)
                 }
-                assert(verify(minsums.input_width, surface.head._1, update))
-                surface ::= (update -> obj.measure(fanout(update)))
+                if (!local_rejects_.contains(update)) {
+                  assert(verify(minsums.input_width, surface.head._1, update))
+                  surface ::= (update -> obj.measure(fanout(update)))
+                }
               }
             }
           }
@@ -555,7 +558,12 @@ object Main {
 
         // TODO apply global rules
       }
-      surface = surface.distinctBy(_._1).sortBy(_._2).take(max_surface)
+      val (tmp1, tmp2) = surface.distinctBy(_._1).sortBy(_._2).splitAt(max_surface)
+      surface = tmp1
+      val rejected = tmp2.map(_._1)
+      local_rejects_ ++= rejected
+      local_rejects = local_rejects.filterNot(k => rejected.contains(k._1))
+
       step += 1
       if (surface eq surface_) converged = true
     }
