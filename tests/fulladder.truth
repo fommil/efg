@@ -1,19 +1,6 @@
 # Full Adder (2 bits and carry flag)
 #
-# The minimal sum of products
-#
-# A = 11-
-# B = 1-1
-# C = -11
-# D = 111
-# E = 100
-# F = 010
-# G = 001
-#
-# Co = A.B.C
-# S = D.E.F.G
-#
-# is far from multi-level solutions comprised of 2-bit
+# Normally written as a multi-level circuit comprised of 2-bit
 # AND, OR, XOR, NOR and NAND, e.g.
 #
 # tmp = XOR(A, B)
@@ -25,8 +12,11 @@
 # (C . (A ^ B)) + A . B
 # (A ^ B) ^ C
 #
-# (XOR may also be replaced with NOR)
+# which isn't necessarilly the most efficient implementation.
 #
+# Note that S is also an XOR3(A, B, Cin) where XOR is viewed
+# as a parity checker rather than an "exclusive OR". Which
+# is best viewed as two chained XOR gates.
 @ A B Ci | Co S
   0 0 0  | 0  0
   0 0 1  | 0  1

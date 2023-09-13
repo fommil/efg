@@ -32,6 +32,7 @@ import java.nio.file.Files
 
 import scala.collection.immutable.BitSet
 
+import fommil.cache._
 import fommil.util._
 import mccluskey.McCluskey
 
@@ -45,6 +46,17 @@ trait LocalRule {
   // it cannot be done from multiple indepentent calls) but may transform
   // multi-level structures.
   def perform(node: Logic): List[Logic]
+
+  private[this] val cache = new LRA[Logic, List[Logic]](1024 * 1024)
+  final def performCached(node: Logic): List[Logic] = {
+    val cached = cache.synchronized { cache.get(node) }
+    if (cached != null) cached
+    else {
+      val res = perform(node)
+      cache.synchronized { cache.put(node, res) }
+      res
+    }
+  }
 }
 object LocalRule {
   // unnest nodes of the same type
@@ -204,16 +216,16 @@ object LocalRule {
       case And(nodes) =>
         val (norm, inv) = nodes.partitionMap {
           case Inv(e) => Right(e)
-          case e => Left(e)
+          case e => Left(Inv(e))
         }
-        List(Inv(Or(norm.map(Inv(_)) ++ inv)))
+        List(Inv(Or(norm ++ inv)))
 
       case Or(nodes) =>
         val (norm, inv) = nodes.partitionMap {
           case Inv(e) => Right(e)
-          case e => Left(e)
+          case e => Left(Inv(e))
         }
-        List(Inv(And(norm.map(Inv(_)) ++ inv)))
+        List(Inv(And(norm ++ inv)))
 
       case _ => Nil
     }
@@ -266,6 +278,11 @@ object Objective {
     diode: Double,
     rtl: Boolean
   ) extends Objective {
+    // TODO actually XNOR is the thing that only needs 1 transistor
+    // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
+
+    // TODO is it possible to build XL-OR (exclusive OR) by adding 2 diodes per input using this design?
+
     // TODO XOR gate when we spot the relevant shapes
     //
     // x ⊕ y = (x · y') + (x' · y)
@@ -528,42 +545,45 @@ object Main {
     var step = 0
     var converged = false
 
-    // note what has been done before (should probably cap this)
-    var local_rejects = Set.empty[(Map[String, Logic], LocalRule, Logic)]
-    var local_rejects_ = Set.empty[Map[String, Logic]]
+    // Track which circuits have been fully explored to avoid repeating work. We
+    // might want to cap these or use a really good hash.
+    var explored = Set.empty[Map[String, Logic]]
+
+    // TODO parallelise
+
+    // we repeat the same work for each output channel a lot of times so rule
+    // application benefits from caching.
+    //
+    // it's unfortunate that only 1 step is allowed at a time, which may exclude
+    // multi-step changes that only produce an improvement in the objective
+    // function when all are applied, but individually increase costs.
 
     while (step < max_steps && !converged) {
       val surface_ = surface
       // System.out.println(s"step $step surface ${surface.size}")
 
-      surface.foreach { case (last_soln, _) =>
+      surface.map(_._1).filter(!explored(_)).foreach { last_soln =>
         val nodes = last_soln.values.toList.flatMap(_.nodes).distinct
         local_rules.foreach { rule =>
           nodes.foreach { node =>
-            if (!local_rejects.contains((last_soln, rule, node))) {
-              local_rejects += ((last_soln, rule, node))
-              rule.perform(node).foreach { repl =>
-                // System.out.println(s"replacing $node with $repl via $rule")
-                val update = last_soln.map {
-                  case (name, circuit) => name -> circuit.replace(node, repl)
-                }
-                if (!local_rejects_.contains(update)) {
-                  assert(verify(minsums.input_width, surface.head._1, update))
-                  surface ::= (update -> obj.measure(fanout(update)))
-                }
+            rule.performCached(node).foreach { repl =>
+              // System.out.println(s"replacing $node with $repl via $rule")
+              val update = last_soln.map {
+                case (name, circuit) => name -> circuit.replace(node, repl)
+              }
+              if (!explored.contains(update)) {
+                assert(verify(minsums.input_width, surface.head._1, update))
+                surface ::= (update -> obj.measure(fanout(update)))
               }
             }
           }
         }
+        explored += last_soln
 
         // TODO apply global rules
       }
-      val (tmp1, tmp2) = surface.distinctBy(_._1).sortBy(_._2).splitAt(max_surface)
-      surface = tmp1
-      val rejected = tmp2.map(_._1)
-      local_rejects_ ++= rejected
-      local_rejects = local_rejects.filterNot(k => rejected.contains(k._1))
 
+      surface = surface.distinctBy(_._1).sortBy(_._2).take(max_surface)
       step += 1
       if (surface eq surface_) converged = true
     }
