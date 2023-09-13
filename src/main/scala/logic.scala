@@ -257,29 +257,17 @@ trait Objective {
   def measure(fan_out: Map[Logic, Int]): Double
 }
 object Objective {
-  // https://en.wikipedia.org/wiki/Diode_logic
-  // https://en.wikipedia.org/wiki/Resistor-transistor_logic
-  // https://en.wikipedia.org/wiki/Diode-transistor_logic
-  //
-  // Diode Logic only implements active-high AND / OR, RTL only implements INV /
-  // NOR using npn transistors (and can build all other gates from there), and
-  // DTL expands on both, using pnp in NOR gates.
-  //
   // The relative weights of each component type are user provided.
   //
   // Negative voltage sinks and their associated resistors are not considered,
   // nor are capacitors, which may be used to speed up transistor switching.
-  //
-  // Old-school RTL NOR may be preferred for 2 or 3 input NOR, which uses a
-  // voltage divider instead of diodes.
   case class DTL_Components(
     resistor: Double,
     npn: Double,
-    diode: Double,
-    rtl: Boolean
+    diode: Double
   ) extends Objective {
     // TODO actually XNOR is the thing that only needs 1 transistor
-    // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
+    // 
 
     // TODO is it possible to build XL-OR (exclusive OR) by adding 2 diodes per input using this design?
 
@@ -304,7 +292,7 @@ object Objective {
     // TODO intermediate AST, reused for the schematic
     def calc(node: Logic): Double = node match {
       case True | In(_) => 0
-      case Inv(or @ Or(es)) if rtl & es.size < 4 => (2 + es.size) * resistor + npn - calc(or)
+      case Inv(or @ Or(es)) if es.size < 4 => (2 + es.size) * resistor + npn - calc(or)
       case Inv(_) => 2 * resistor + npn
       case Or(es) => resistor + es.size * diode
       case And(es) => resistor + es.size * diode
@@ -314,6 +302,52 @@ object Objective {
   //   - TODO TTL https://en.wikipedia.org/wiki/Transistor-transistor_logic
   //   - TODO CMOS https://en.wikipedia.org/wiki/CMOS
   //   - TODO Sky130 https://github.com/google/skywater-pdk
+
+}
+
+object Hardware {
+  // https://en.wikipedia.org/wiki/Diode_logic
+  // https://en.wikipedia.org/wiki/Resistor-transistor_logic
+  // https://en.wikipedia.org/wiki/Diode-transistor_logic
+  //
+  // Diode Logic only implements active-high AND / OR, RTL only implements INV /
+  // NOR using npn transistors (and can build all other gates from there), and
+  // DTL expands on both, using pnp in NOR gates.
+  //
+  // We also consider One Hot (i.e. intuitive multi-bit exclusive OR) based on
+  // the efficient Not One Hot (NOH) implementation using a rectifier network
+  // with the transistor emitter feedback.
+  //
+  // Old-school RTL NOR is preferred for 2 or 3 input NOR, which uses a voltage
+  // divider instead of diodes.
+  sealed trait DTL
+  object DTL {
+    case class REF(channel: Int)       extends DTL
+    case class AND(entries: List[DTL]) extends DTL
+    case class OR (entries: List[DTL]) extends DTL
+    case class NOT(entry: DTL)         extends DTL
+
+    // to address fan-out constraints
+    case class BUF(entry: DTL)         extends DTL
+
+    // voltage divider (has fan-in constraints)
+    case class NOR(entries: List[DTL]) extends DTL
+
+    // TODO look into fan-in constraints in Falstad simulator and real life
+
+    // rectifier and NPN "Not One Hot" (may have fan-in constraints)
+    // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
+    case class NOH(entries: List[DTL]) extends DTL
+    // "One Hot" uses PNP
+    case class OH (entries: List[DTL]) extends DTL
+    // TODO check if equivalent to XNOR/XOR for even numbers of input
+    //      and what correction is needed for odd numbered
+
+    // uses 2 transistors, the second feeding back into the first.
+    // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
+    case class XOR(a: DTL, b: DTL)     extends DTL
+    case class XNOR(a: DTL, b: DTL)    extends DTL
+  }
 
 }
 
@@ -524,8 +558,7 @@ object Main {
     val obj: Objective = Objective.DTL_Components(
       resistor = 0,
       npn = 1,
-      diode = 0.75,
-      rtl = true
+      diode = 0.75
     )
 
     // would be nice to keep track of the rules that were applied
