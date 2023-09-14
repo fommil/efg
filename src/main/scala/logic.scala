@@ -46,17 +46,6 @@ trait LocalRule {
   // it cannot be done from multiple indepentent calls) but may transform
   // multi-level structures.
   def perform(node: Logic): List[Logic]
-
-  private[this] val cache = new LRA[Logic, List[Logic]](1024 * 1024)
-  final def performCached(node: Logic): List[Logic] = {
-    val cached = cache.synchronized { cache.get(node) }
-    if (cached != null) cached
-    else {
-      val res = perform(node)
-      cache.synchronized { cache.put(node, res) }
-      res
-    }
-  }
 }
 object LocalRule {
   // unnest nodes of the same type
@@ -79,6 +68,32 @@ object LocalRule {
         }
         if (nested.isEmpty) Nil
         else List(Or(nested.flatten ++ other))
+
+      case _ => Nil
+    }
+  }
+
+  // there are several situations where we would want to split up AND/OR. For
+  // example, we might want to maximise sharing of nodes across channels, or we
+  // might want to split out a part that can be further decomposed into a
+  // different kind of hardware-specific gate (such as XOR or NOH). Although we
+  // could look for those situations specifically, with global rules, it is much
+  // easier to just search every possibility and catch things that we didn't
+  // even think of.
+  object Nest extends LocalRule {
+    private def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
+      (2 to (entries.size + 1) / 2).toList.flatMap { i =>
+        entries.subsets(i).map { left =>
+          (left, entries.diff(left))
+        }
+      }
+
+    override def perform(node: Logic): List[Logic] = node match {
+      case And(entries) if entries.size > 2 =>
+        subsets(entries).map { case (left, right) => And(left + And(right))}
+
+      case Or(entries) if entries.size > 2 =>
+        subsets(entries).map { case (left, right) => Or(left + Or(right))}
 
       case _ => Nil
     }
@@ -231,6 +246,19 @@ object LocalRule {
     }
   }
 
+  class Cached(underlying: LocalRule, limit: Int) extends LocalRule {
+    private[this] val cache = new LRA[Logic, List[Logic]](limit)
+    final def perform(node: Logic): List[Logic] = {
+      val cached = cache.synchronized { cache.get(node) }
+      if (cached != null) cached
+      else {
+        val res = underlying.perform(node)
+        cache.synchronized { cache.put(node, res) }
+        res
+      }
+    }
+  }
+
   // TODO it feels like there is further elimination possible here...
   // i1'·i2'·i0 + (i1' + i0 + i2)' + (i2' + i0 + i1)' + (i0' + i1' + i2')'
 
@@ -238,19 +266,12 @@ object LocalRule {
   //      including the two standard test cases that seem to be used over and
   //      over in expand/reduce techniques like transduction.
 
-  // TODO use simulated annealing to build a transduction database
+  // TODO use simulated annealing to build a transduction database. A way to
+  // find nodes that can be replaced would be to look 2+ levels deep and if the
+  // number of inputs is smaller than the depth then construct the truth table
+  // and perform a straight swap for the more efficient implementation. That might
+  // be cheaper and more straightforward than finding dterms.
 
-}
-
-trait GlobalRule {
-  // there is the possibility of work duplication between the "trigger" and
-  // "perform" steps. If that becomes a performance issue, we can make use of
-  // type members to allow the trigger to pass state over to the perform step.
-  def trigger(channels: List[Logic], fan_out: Map[Logic, Int]): List[Logic]
-  def perform(nodes: List[Logic]): Map[Logic, Logic]
-}
-object GlobalRule {
-  // TODO split AND / OR gates that have sub-sets that can be shared
 }
 
 trait Objective {
@@ -267,7 +288,7 @@ object Objective {
     diode: Double
   ) extends Objective {
     // TODO actually XNOR is the thing that only needs 1 transistor
-    // 
+    //
 
     // TODO is it possible to build XL-OR (exclusive OR) by adding 2 diodes per input using this design?
 
@@ -327,16 +348,17 @@ object Hardware {
     case class OR (entries: List[DTL]) extends DTL
     case class NOT(entry: DTL)         extends DTL
 
-    // to address fan-out constraints
+    // amplifier to address fan-out constraints
+    // TODO an extra pass after materialise to add BUF for large fan-out
     case class BUF(entry: DTL)         extends DTL
 
     // voltage divider (has fan-in constraints)
+    // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOR(entries: List[DTL]) extends DTL
 
-    // TODO look into fan-in constraints in Falstad simulator and real life
-
-    // rectifier and NPN "Not One Hot" (may have fan-in constraints)
+    // rectifier and NPN "Not One Hot"
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
+    // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOH(entries: List[DTL]) extends DTL
     // "One Hot" uses PNP
     case class OH (entries: List[DTL]) extends DTL
@@ -347,6 +369,29 @@ object Hardware {
     // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
     case class XOR(a: DTL, b: DTL)     extends DTL
     case class XNOR(a: DTL, b: DTL)    extends DTL
+
+    def materialise(logic: Logic): DTL = logic match {
+      case True => impossible
+      case In(i) => REF(i)
+
+      case Inv(Or(es)) if es.size < 4 => NOR(es.toList.map(materialise(_)))
+
+        // x ⊕ y = (x · y') + (x' · y)
+        // x ⊕ y = (x + y) · (x' + y')
+        // x ⊕ y = (x + y) · (x · y)'
+
+      case And(es) =>
+
+
+
+        AND(es.toList.map(materialise(_)))
+
+
+
+      case Or(es) => OR(es.toList.map(materialise(_)))
+      case Inv(e) => NOT(materialise(e))
+    }
+
   }
 
 }
@@ -550,9 +595,8 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan)
+      List(Factor, Nest, UnNest, Eliminate, DeMorgan).map(new Cached(_, 1024 * 1024))
     }
-    val max_surface = 25
     val max_steps = 1000
 
     val obj: Objective = Objective.DTL_Components(
@@ -561,26 +605,23 @@ object Main {
       diode = 0.75
     )
 
-    // would be nice to keep track of the rules that were applied
-    var surface = minsums.asLogic.map { soln => soln -> obj.measure(fanout(soln)) }
+    // The surface tracks which circuits have been fully explored to avoid
+    // repeating work. We might want to limit since it is a designed-in leak.
+    var all_my_circuits = minsums.asLogic.map { soln => soln -> obj.measure(fanout(soln)) }.toMap
     // TODO add variants with truth table inverted for outputs with more than half true
 
-    surface.tail.foreach { needle =>
-      assert(verify(minsums.input_width, surface.head._1, needle._1))
+    val ground_truth = all_my_circuits.head._1
+    all_my_circuits.tail.foreach {
+      case (needle, _) => assert(verify(minsums.input_width, ground_truth, needle))
     }
 
     // TODO calculate the alternative msop using 2-bit input decoders which
     //      doubles the size of the inputs but typically reduces the size of the
     //      sop network (~25% according to the literature).
 
-    System.out.println("baseline = " + surface.map(_._2).min)
+    System.out.println("baseline = " + all_my_circuits.minBy(_._2))
 
     var step = 0
-    var converged = false
-
-    // Track which circuits have been fully explored to avoid repeating work. We
-    // might want to cap these or use a really good hash.
-    var explored = Set.empty[Map[String, Logic]]
 
     // TODO parallelise
 
@@ -591,37 +632,32 @@ object Main {
     // multi-step changes that only produce an improvement in the objective
     // function when all are applied, but individually increase costs.
 
-    while (step < max_steps && !converged) {
+    var surface = all_my_circuits.keySet
+    while (step < max_steps && surface.nonEmpty) {
       val surface_ = surface
-      // System.out.println(s"step $step surface ${surface.size}")
-
-      surface.map(_._1).filter(!explored(_)).foreach { last_soln =>
+      surface = Set.empty
+      surface_.foreach { last_soln =>
         val nodes = last_soln.values.toList.flatMap(_.nodes).distinct
         local_rules.foreach { rule =>
           nodes.foreach { node =>
-            rule.performCached(node).foreach { repl =>
+            rule.perform(node).foreach { repl =>
               // System.out.println(s"replacing $node with $repl via $rule")
               val update = last_soln.map {
                 case (name, circuit) => name -> circuit.replace(node, repl)
               }
-              if (!explored.contains(update)) {
-                assert(verify(minsums.input_width, surface.head._1, update))
-                surface ::= (update -> obj.measure(fanout(update)))
+              if (!all_my_circuits.contains(update) && !surface.contains(update)) {
+                assert(verify(minsums.input_width, ground_truth, update))
+                surface += update
+                all_my_circuits += (update -> obj.measure(fanout(update)))
               }
             }
           }
         }
-        explored += last_soln
-
-        // TODO apply global rules
       }
-
-      surface = surface.distinctBy(_._1).sortBy(_._2).take(max_surface)
       step += 1
-      if (surface eq surface_) converged = true
     }
 
-    System.out.println(surface.head)
+    System.out.println("optimised = " + all_my_circuits.minBy(_._2))
   }
 
   def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
