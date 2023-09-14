@@ -303,8 +303,6 @@ object Objective {
       case NOR(es) => (2 + es.length) * resistor + npn
       case NOH(es) => 2 * resistor + npn + es.length * diode
       case  OH(es) => 2 * resistor + pnp + es.length * diode
-      case XOR(a, b) => ???
-      case XNOR(a, b) => ???
     }
   }
 
@@ -341,8 +339,6 @@ object Hardware {
       case nor @ NOR(es) => nor :: es.flatMap(_.nodes)
       case noh @ NOH(es) => noh :: es.flatMap(_.nodes)
       case  oh @  OH(es) =>  oh :: es.flatMap(_.nodes)
-      case xor @ XOR(a, b) => xor :: a.nodes ::: b.nodes
-      case xnor @ XNOR(a, b) => xnor :: a.nodes ::: b.nodes
     }
   }
   object DTL {
@@ -359,21 +355,26 @@ object Hardware {
     // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOR(entries: List[DTL]) extends DTL
 
-    // rectifier and NPN "Not One Hot"
+    // rectifier and NPN "Not One Hot". Equivalent to XNOR for 2 inputs (and possibly nested variants).
+    //
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
     // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
     // TODO calculate the fan-in constraint in Falstad and breadboard
+    //
+    // Note that it is also possible to use 2 transistors, the second feeding back into the first,
+    // but we always prefer to use diodes.
+    // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
     case class NOH(entries: List[DTL]) extends DTL
-    // "One Hot" uses PNP
+    // "One Hot" uses PNP, equivalent to XOR for 2 inputs (and possibly all even inputs)
     case class OH (entries: List[DTL]) extends DTL
     // TODO check if equivalent to XNOR/XOR for even numbers of input
     //      and what correction is needed for odd numbered
 
-    // uses 2 transistors, the second feeding back into the first.
-    // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
-    // TODO the choice between XOR and OH for 2 inputs is objective dependent
-    case class XOR(a: DTL, b: DTL)     extends DTL
-    case class XNOR(a: DTL, b: DTL)    extends DTL
+    //
+    // There are situations where this may be preferable to use this encoding if diodes are expensive
+    //
+    // case class XOR(a: DTL, b: DTL)     extends DTL
+    // case class XNOR(a: DTL, b: DTL)    extends DTL
 
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
@@ -669,7 +670,7 @@ object Main {
     val soln = all_my_circuits.minBy(_._2)
     val shared = Hardware.DTL.fanout(soln._1).filter {
       case (Hardware.DTL.REF(_), _) => false
-      case (node, out) => out > 1
+      case (_, out) => out > 1
     }
     System.out.println(s"""optimised = $soln\nshared = ${shared.mkString("\n")}""")
   }
