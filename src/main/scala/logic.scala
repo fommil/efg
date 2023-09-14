@@ -275,7 +275,7 @@ object LocalRule {
 }
 
 trait Objective {
-  def measure(fan_out: Map[Logic, Int]): Double
+  def measure(circuit: Map[String, Logic]): Double
 }
 object Objective {
   // The relative weights of each component type are user provided.
@@ -285,38 +285,26 @@ object Objective {
   case class DTL_Components(
     resistor: Double,
     npn: Double,
+    pnp: Double,
     diode: Double
   ) extends Objective {
-    // TODO actually XNOR is the thing that only needs 1 transistor
-    //
+    import Hardware.DTL
+    import Hardware.DTL._
 
-    // TODO is it possible to build XL-OR (exclusive OR) by adding 2 diodes per input using this design?
+    override def measure(circuit: Map[String, Logic]): Double =
+      DTL.fanout(circuit).keys.toList.map(calc(_)).sum
 
-    // TODO XOR gate when we spot the relevant shapes
-    //
-    // x ⊕ y = (x · y') + (x' · y)
-    // x ⊕ y = (x + y) · (x' + y')
-    // x ⊕ y = (x + y) · (x · y)'
-    //
-    // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
-    // cost = 3.R + 2.T + 2.D.N with fan-in limits
-    //
-    // or maybe this would be best encoded at the Logic level?
-
-    // TODO add transistor+diode to boost weak fan-out signals.
-    //
-    // INV is implemented as a common emitter NPN transistor. Two and three
-    // input NOR may be implemented as INV with a voltage divider.
-    //
-    override def measure(fan_out: Map[Logic, Int]): Double = fan_out.keys.map(calc).sum
-
-    // TODO intermediate AST, reused for the schematic
-    def calc(node: Logic): Double = node match {
-      case True | In(_) => 0
-      case Inv(or @ Or(es)) if es.size < 4 => (2 + es.size) * resistor + npn - calc(or)
-      case Inv(_) => 2 * resistor + npn
-      case Or(es) => resistor + es.size * diode
-      case And(es) => resistor + es.size * diode
+    private def calc(node: DTL): Double = node match {
+      case REF(_)  => 0
+      case AND(es) => resistor + es.length * diode
+      case  OR(es) => resistor + es.length * diode
+      case NOT(_)  => 2 * resistor + npn
+      case BUF(_)  => ???
+      case NOR(es) => (2 + es.length) * resistor + npn
+      case NOH(es) => 2 * resistor + npn + es.length * diode
+      case  OH(es) => 2 * resistor + pnp + es.length * diode
+      case XOR(a, b) => ???
+      case XNOR(a, b) => ???
     }
   }
 
@@ -341,7 +329,22 @@ object Hardware {
   //
   // Old-school RTL NOR is preferred for 2 or 3 input NOR, which uses a voltage
   // divider instead of diodes.
-  sealed trait DTL
+  sealed trait DTL {
+    import DTL._
+
+    def nodes: List[DTL] = this match {
+      case ref @ REF(_)  => List(ref)
+      case and @ AND(es) => and :: es.flatMap(_.nodes)
+      case  or @  OR(es) =>  or :: es.flatMap(_.nodes)
+      case not @ NOT(e)  => not :: e.nodes
+      case buf @ BUF(e)  => buf :: e.nodes
+      case nor @ NOR(es) => nor :: es.flatMap(_.nodes)
+      case noh @ NOH(es) => noh :: es.flatMap(_.nodes)
+      case  oh @  OH(es) =>  oh :: es.flatMap(_.nodes)
+      case xor @ XOR(a, b) => xor :: a.nodes ::: b.nodes
+      case xnor @ XNOR(a, b) => xnor :: a.nodes ::: b.nodes
+    }
+  }
   object DTL {
     case class REF(channel: Int)       extends DTL
     case class AND(entries: List[DTL]) extends DTL
@@ -358,6 +361,7 @@ object Hardware {
 
     // rectifier and NPN "Not One Hot"
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
+    // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
     // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOH(entries: List[DTL]) extends DTL
     // "One Hot" uses PNP
@@ -367,6 +371,7 @@ object Hardware {
 
     // uses 2 transistors, the second feeding back into the first.
     // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
+    // TODO the choice between XOR and OH for 2 inputs is objective dependent
     case class XOR(a: DTL, b: DTL)     extends DTL
     case class XNOR(a: DTL, b: DTL)    extends DTL
 
@@ -381,7 +386,7 @@ object Hardware {
         // x ⊕ y = (x + y) · (x · y)'
 
       case And(es) =>
-
+        // FIXME find NOH / OH / XOR / etc
 
 
         AND(es.toList.map(materialise(_)))
@@ -391,6 +396,9 @@ object Hardware {
       case Or(es) => OR(es.toList.map(materialise(_)))
       case Inv(e) => NOT(materialise(e))
     }
+
+    def fanout(circuit: Map[String, Logic]): Map[DTL, Int] =
+      circuit.values.toList.map(materialise(_)).flatMap(_.nodes).counts
 
   }
 
@@ -404,11 +412,11 @@ sealed trait Logic { self =>
     case In(i) => s"i$i"
     case Inv(e) => e.render(false, false) + "'"
     case And(entries) =>
-      val parts = entries.map(_.render(true, false))
+      val parts = entries.map(_.render(false, true))
       if (ors) parts.mkString("·")
       else parts.mkString("(", "·", ")")
     case Or(entries) =>
-      val parts = entries.map(_.render(false, true))
+      val parts = entries.map(_.render(true, false))
       if (ands) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
   }
@@ -602,12 +610,13 @@ object Main {
     val obj: Objective = Objective.DTL_Components(
       resistor = 0,
       npn = 1,
+      pnp = 1,
       diode = 0.75
     )
 
-    // The surface tracks which circuits have been fully explored to avoid
-    // repeating work. We might want to limit since it is a designed-in leak.
-    var all_my_circuits = minsums.asLogic.map { soln => soln -> obj.measure(fanout(soln)) }.toMap
+    // Tracks which circuits have been fully explored to avoid repeating work.
+    // We might want to limit since it is a designed-in leak.
+    var all_my_circuits = minsums.asLogic.map { soln => soln -> obj.measure(soln) }.toMap
     // TODO add variants with truth table inverted for outputs with more than half true
 
     val ground_truth = all_my_circuits.head._1
@@ -648,7 +657,7 @@ object Main {
               if (!all_my_circuits.contains(update) && !surface.contains(update)) {
                 assert(verify(minsums.input_width, ground_truth, update))
                 surface += update
-                all_my_circuits += (update -> obj.measure(fanout(update)))
+                all_my_circuits += (update -> obj.measure(update))
               }
             }
           }
@@ -657,11 +666,16 @@ object Main {
       step += 1
     }
 
-    System.out.println("optimised = " + all_my_circuits.minBy(_._2))
+    val soln = all_my_circuits.minBy(_._2)
+    val shared = Hardware.DTL.fanout(soln._1).filter {
+      case (Hardware.DTL.REF(_), _) => false
+      case (node, out) => out > 1
+    }
+    System.out.println(s"""optimised = $soln\nshared = ${shared.mkString("\n")}""")
   }
 
-  def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
-    channels.values.toList.flatMap(_.nodes).counts
+  // def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
+  //   channels.values.toList.flatMap(_.nodes).counts
 
   def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Boolean = {
     (0 until (1 << input_width)).foreach { i =>
