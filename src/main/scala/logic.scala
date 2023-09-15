@@ -292,7 +292,7 @@ object Objective {
     import Hardware.DTL._
 
     override def measure(circuit: Map[String, Logic]): Double =
-      DTL.fanout(circuit).keys.toList.map(calc(_)).sum
+      DTL.counts(circuit).keys.toList.map(calc(_)).sum
 
     private def calc(node: DTL): Double = node match {
       case REF(_)  => 0
@@ -370,8 +370,8 @@ object Hardware {
     // TODO check if equivalent to XNOR/XOR for even numbers of input
     //      and what correction is needed for odd numbered
 
-    //
-    // There are situations where this may be preferable to use this encoding if diodes are expensive
+    // There are situations where it is preferable to use a transistor XOR
+    // encoding when diodes are expensive or take up too much space.
     //
     // case class XOR(a: DTL, b: DTL)     extends DTL
     // case class XNOR(a: DTL, b: DTL)    extends DTL
@@ -398,7 +398,10 @@ object Hardware {
       case Inv(e) => NOT(materialise(e))
     }
 
-    def fanout(circuit: Map[String, Logic]): Map[DTL, Int] =
+    // TODO this is not fanout, since subcomponents of a fanned out component
+    // will look like they are also fanning out. We should do a true fanout
+    // calculation instead, that walks the circuit and dedupes as it goes.
+    def counts(circuit: Map[String, Logic]): Map[DTL, Int] =
       circuit.values.toList.map(materialise(_)).flatMap(_.nodes).counts
 
   }
@@ -668,15 +671,14 @@ object Main {
     }
 
     val soln = all_my_circuits.minBy(_._2)
-    val shared = Hardware.DTL.fanout(soln._1).filter {
-      case (Hardware.DTL.REF(_), _) => false
-      case (_, out) => out > 1
-    }
-    System.out.println(s"""optimised = $soln\nshared = ${shared.mkString("\n")}""")
-  }
+    // val shared = Hardware.DTL.counts(soln._1).filter {
+    //   case (Hardware.DTL.REF(_), _) => false
+    //   case (_, out) => out > 1
+    // }
+    // TODO note true shared components by calculating the fanout
 
-  // def fanout(channels: Map[String, Logic]): Map[Logic, Int] =
-  //   channels.values.toList.flatMap(_.nodes).counts
+    System.out.println(s"""optimised = $soln""")
+  }
 
   def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Boolean = {
     (0 until (1 << input_width)).foreach { i =>
