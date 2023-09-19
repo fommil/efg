@@ -303,12 +303,17 @@ object Objective {
       case NOR(es) => (2 + es.length) * resistor + npn
       case NOH(es) => 2 * resistor + npn + es.length * diode
       case  OH(es) => 2 * resistor + pnp + es.length * diode
-      case XOR(_, _) => 3 * resistor + 2 * npn
-      case XNOR(_, _) => 3 * resistor + 2 * pnp
+      case XOR(a, b) =>
+        val variant1 = 3 * resistor + 2 * npn
+        val variant2 = calc(OH(a :: b :: Nil))
+        math.min(variant1, variant2)
+      case XNOR(a, b) =>
+        val variant1 = 3 * resistor + 2 * pnp
+        val variant2 = calc(NOH(a :: b :: Nil))
+        math.min(variant1, variant2)
     }
   }
 
-  //   - TODO TTL https://en.wikipedia.org/wiki/Transistor-transistor_logic
   //   - TODO CMOS https://en.wikipedia.org/wiki/CMOS
   //   - TODO Sky130 https://github.com/google/skywater-pdk
 
@@ -375,11 +380,6 @@ object Hardware {
     case class XOR(a: DTL, b: DTL)     extends DTL // ⊕
     case class XNOR(a: DTL, b: DTL)    extends DTL // ⊙
 
-    // TODO allow selecting OH/NOH instead of XOR/XNOR
-    // TODO detect OH/NOH for higher arity
-    //
-    // this should really return a List[DTL] to capture all the choices that can
-    // be made...
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
       case In(i) => REF(i)
@@ -436,7 +436,8 @@ object Hardware {
       }
     }
 
-    // TODO this is not fanout, since subcomponents of a fanned out component
+    // FIXME fanout
+    // this is not fanout, since subcomponents of a fanned out component
     // will look like they are also fanning out. We should do a true fanout
     // calculation instead, that walks the circuit and dedupes as it goes.
     def counts(circuit: Map[String, Logic]): Map[DTL, Int] =
@@ -715,7 +716,29 @@ object Main {
     // }
     // TODO note true shared components by calculating the fanout
 
+    // TODO output the DTL circuit in yosys format
+
     System.out.println(s"""optimised = $soln""")
+
+    val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
+
+    System.out.println(impl)
+
+    val textbook = {
+      import Hardware.DTL._
+
+      val A = REF(0)
+      val B = REF(1)
+      val Cin = REF(2)
+      val tmp = XOR(A, B)
+      val Co = OR(AND(tmp :: Cin :: Nil) :: AND(A :: B :: Nil) :: Nil)
+      val S = XOR(tmp, Cin)
+
+      // TODO cost the textbook soln
+      Map("S" -> S, "Co" -> Co)
+    }
+    System.out.println(textbook)
+
   }
 
   def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Boolean = {
