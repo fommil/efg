@@ -388,6 +388,8 @@ object Hardware {
         case OR(es) if es.size < 4 => NOR(es)
         case XOR(a, b) => XNOR(a, b)
         case XNOR(a, b) => XOR(a, b)
+        case OH(es) => NOH(es)
+        case NOH(es) => OH(es)
         case other => NOT(other)
       }
 
@@ -395,7 +397,6 @@ object Hardware {
         // x ⊕ y = (x + y) · (x' + y')
         // x ⊙ y = (x + y') · (x' + y)
         case List(Or(as), Or(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
-          // arbitrarilly chose XOR instead of XNOR, OH, NOH
           XOR(materialise(as.head), materialise(as.tail.head))
 
         // x ⊕ y = (x + y) · (x · y)'
@@ -412,10 +413,26 @@ object Hardware {
         // x ⊕ y = (x · y') + (x' · y)
         // x ⊙ y = (x · y) + (x' · y')
         case List(And(as), And(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
-          // arbitrarilly chose XNOR instead of XOR, OH, NOH
           XNOR(materialise(as.head), materialise(as.tail.head))
 
-        case other => OR(other.map(materialise(_)))
+        case other =>
+          //  OH(a, b, c) = (a · b' · c') + (a' · b · c') + (a' · b' · c)
+          // NOH(a, b, c) = (a' · b · c)  + (a · b' · c)  + (a · b · c')
+          // TODO find NOH
+          val (es, ands) = other.partitionMap {
+            case and: And => Right(and)
+            case e => Left(e)
+          }
+          lazy val abc = {
+            val first = ands.head.entries
+            first.tail + Inv(first.head)
+          }
+          def expect_onehot = abc.map { hot => (abc - hot) + Inv(hot) }
+
+          if (es.isEmpty && ands == expect_onehot)
+            OH(abc.toList.map(materialise(_)))
+          else
+            OR(other.map(materialise(_)))
       }
     }
 
