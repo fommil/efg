@@ -303,6 +303,8 @@ object Objective {
       case NOR(es) => (2 + es.length) * resistor + npn
       case NOH(es) => 2 * resistor + npn + es.length * diode
       case  OH(es) => 2 * resistor + pnp + es.length * diode
+      case XOR(_, _) => 3 * resistor + 2 * npn
+      case XNOR(_, _) => 3 * resistor + 2 * pnp
     }
   }
 
@@ -339,6 +341,8 @@ object Hardware {
       case nor @ NOR(es) => nor :: es.flatMap(_.nodes)
       case noh @ NOH(es) => noh :: es.flatMap(_.nodes)
       case  oh @  OH(es) =>  oh :: es.flatMap(_.nodes)
+      case xor @ XOR(a, b) => xor :: a.nodes ::: b.nodes
+      case xnor @ XNOR(a, b) => xnor :: a.nodes ::: b.nodes
     }
   }
   object DTL {
@@ -355,47 +359,64 @@ object Hardware {
     // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOR(entries: List[DTL]) extends DTL
 
-    // rectifier and NPN "Not One Hot". Equivalent to XNOR for 2 inputs (and possibly nested variants).
+    // rectifier and NPN "Not One Hot". Equivalent to XNOR for 2 inputs but not any other arity.
     //
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
     // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
     // TODO calculate the fan-in constraint in Falstad and breadboard
-    //
-    // Note that it is also possible to use 2 transistors, the second feeding back into the first,
-    // but we always prefer to use diodes.
-    // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
     case class NOH(entries: List[DTL]) extends DTL
-    // "One Hot" uses PNP, equivalent to XOR for 2 inputs (and possibly all even inputs)
+    // "One Hot" uses PNP, equivalent to XOR for 2 inputs.
     case class OH (entries: List[DTL]) extends DTL
-    // TODO check if equivalent to XNOR/XOR for even numbers of input
-    //      and what correction is needed for odd numbered
 
     // There are situations where it is preferable to use a transistor XOR
     // encoding when diodes are expensive or take up too much space.
-    //
-    // case class XOR(a: DTL, b: DTL)     extends DTL
-    // case class XNOR(a: DTL, b: DTL)    extends DTL
+    // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
+    // XOR / XNOR are probably best called PARITY when extended to higher arity.
+    case class XOR(a: DTL, b: DTL)     extends DTL // ⊕
+    case class XNOR(a: DTL, b: DTL)    extends DTL // ⊙
 
+    // TODO allow selecting OH/NOH instead of XOR/XNOR
+    // TODO detect OH/NOH for higher arity
+    //
+    // this should really return a List[DTL] to capture all the choices that can
+    // be made...
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
       case In(i) => REF(i)
 
-      case Inv(Or(es)) if es.size < 4 => NOR(es.toList.map(materialise(_)))
+      case Inv(e) => materialise(e) match {
+        case OR(es) if es.size < 4 => NOR(es)
+        case XOR(a, b) => XNOR(a, b)
+        case XNOR(a, b) => XOR(a, b)
+        case other => NOT(other)
+      }
 
-        // x ⊕ y = (x · y') + (x' · y)
+      case And(es) => es.toList match {
         // x ⊕ y = (x + y) · (x' + y')
+        // x ⊙ y = (x + y') · (x' + y)
+        case List(Or(as), Or(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
+          // arbitrarilly chose XOR instead of XNOR, OH, NOH
+          XOR(materialise(as.head), materialise(as.tail.head))
+
         // x ⊕ y = (x + y) · (x · y)'
+        case List(Or(as), Inv(And(bs))) if as.size == 2 && as == bs =>
+          XOR(materialise(as.head), materialise(as.tail.head))
+        case List(Inv(And(bs)), Or(as)) if as.size == 2 && as == bs =>
+          XOR(materialise(as.head), materialise(as.tail.head))
 
-      case And(es) =>
-        // FIXME find NOH / OH / XOR / etc
+        case other =>
+          AND(other.map(materialise(_)))
+      }
 
+      case Or(es) => es.toList match {
+        // x ⊕ y = (x · y') + (x' · y)
+        // x ⊙ y = (x · y) + (x' · y')
+        case List(And(as), And(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
+          // arbitrarilly chose XNOR instead of XOR, OH, NOH
+          XNOR(materialise(as.head), materialise(as.tail.head))
 
-        AND(es.toList.map(materialise(_)))
-
-
-
-      case Or(es) => OR(es.toList.map(materialise(_)))
-      case Inv(e) => NOT(materialise(e))
+        case other => OR(other.map(materialise(_)))
+      }
     }
 
     // TODO this is not fanout, since subcomponents of a fanned out component
