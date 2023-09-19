@@ -418,7 +418,7 @@ object Hardware {
         case other =>
           //  OH(a, b, c) = (a · b' · c') + (a' · b · c') + (a' · b' · c)
           // NOH(a, b, c) = (a' · b · c)  + (a · b' · c)  + (a · b · c')
-          // TODO find NOH
+          // finding them without context is equivalent, so prefer NOH
           val (es, ands) = other.partitionMap {
             case and: And => Right(and)
             case e => Left(e)
@@ -427,10 +427,10 @@ object Hardware {
             val first = ands.head.entries
             first.tail + Inv(first.head)
           }
-          def expect_onehot = abc.map { hot => (abc - hot) + Inv(hot) }
+          def expect_notonehot = abc.map { hot => (abc - hot) + Inv(hot) }
 
-          if (es.isEmpty && ands == expect_onehot)
-            OH(abc.toList.map(materialise(_)))
+          if (es.isEmpty && ands == expect_notonehot)
+            NOH(abc.toList.map(materialise(_))) // would need to invert abc for OH
           else
             OR(other.map(materialise(_)))
       }
