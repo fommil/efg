@@ -62,8 +62,10 @@ class LogicTest extends Test {
   }
 
   def testUnNest: Unit = propLocalRule(UnNest)
+  def testNest: Unit = propLocalRule(Nest)
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
+  def testDeMorgan: Unit = propLocalRule(DeMorgan)
 
   // any property test that fails, no matter how simple, should be documented
   // below as a standalone test, committed along with the fix.
@@ -71,6 +73,7 @@ class LogicTest extends Test {
   // common entries...
   private val a = In(0)
   private val b = In(1)
+  private val c = In(2)
 
   // a·(a + b)
   def testEliminate1: Unit = assertLocalRule(Eliminate, And(a, Or(a, b)))
@@ -78,6 +81,8 @@ class LogicTest extends Test {
   // (a·b + a)
   def testEliminate2: Unit = assertLocalRule(Eliminate, Or(And(a, b), a))
 
+  // (a + b + c) should not try to nest
+  def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))
 }
 
 // sbtn Test/testOnly -- *.LogicTest.testEliminate1

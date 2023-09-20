@@ -83,16 +83,14 @@ object LocalRule {
   object Nest extends LocalRule {
     private def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
-        entries.subsets(i).map { left =>
-          (left, entries.diff(left))
-        }
+        entries.subsets(i).map { left => (left, entries.diff(left)) }
       }
 
     override def perform(node: Logic): List[Logic] = node match {
-      case And(entries) if entries.size > 2 =>
-        subsets(entries).map { case (left, right) => And(left + And(right))}
+      case And(entries) if entries.size > 4 =>
+        subsets(entries).map { case (left, right) => And(left + And(right)) }
 
-      case Or(entries) if entries.size > 2 =>
+      case Or(entries) if entries.size > 4 =>
         subsets(entries).map { case (left, right) => Or(left + Or(right))}
 
       case _ => Nil
@@ -258,9 +256,6 @@ object LocalRule {
       }
     }
   }
-
-  // TODO it feels like there is further elimination possible here...
-  // i1'·i2'·i0 + (i1' + i0 + i2)' + (i2' + i0 + i1)' + (i0' + i1' + i2')'
 
   // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
   //      including the two standard test cases that seem to be used over and
@@ -462,11 +457,13 @@ sealed trait Logic { self =>
     case In(i) => s"i$i"
     case Inv(e) => e.render(false, false) + "'"
     case And(entries) =>
-      val parts = entries.map(_.render(false, true))
+      val nested = entries.exists(_.isInstanceOf[And])
+      val parts = entries.map(_.render(false, !nested))
       if (ors) parts.mkString("·")
       else parts.mkString("(", "·", ")")
     case Or(entries) =>
-      val parts = entries.map(_.render(true, false))
+      val nested = entries.exists(_.isInstanceOf[Or])
+      val parts = entries.map(_.render(!nested, false))
       if (ands) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
   }
@@ -608,6 +605,7 @@ object Logic {
     }
   }
 
+  // TODO is auto-deduping nested things stopping us from finding optimal solutions?
   object Or {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
@@ -729,7 +727,7 @@ object Main {
     // TODO output the DTL circuit in yosys format
     System.out.println(s"IMPL = $impl")
 
-    // TODO fix the solver until it can be as efficient as the textbook soln
+    // FIXME fix the solver until it can be as efficient as the textbook soln
 
     val textbook = {
       import Hardware.DTL._
