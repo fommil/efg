@@ -86,6 +86,8 @@ object LocalRule {
         entries.subsets(i).map { left => (left, entries.diff(left)) }
       }
 
+    // FIXME support 2+ so that we can split out shared components, needs
+    // some thought on the constructors.
     override def perform(node: Logic): List[Logic] = node match {
       case And(entries) if entries.size > 4 =>
         subsets(entries).map { case (left, right) => And(left + And(right)) }
@@ -392,6 +394,9 @@ object Hardware {
         case other =>
           AND(other.map(materialise(_)))
       }
+
+      // FIXME spot multi-arity XOR / XNOR (count parity), but how do we choose
+      // the ordering? Need to change the type signature.
 
       case Or(es) => es.toList match {
         // x ⊕ y = (x · y') + (x' · y)
