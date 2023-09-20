@@ -292,7 +292,11 @@ object Objective {
     import Hardware.DTL._
 
     override def measure(circuit: Map[String, Logic]): Double =
-      DTL.counts(circuit).keys.toList.map(calc(_)).sum
+      measureFanout(DTL.fanout(circuit.values.toList.map(DTL.materialise(_))))
+
+    // BUF should really be counted a bit more...
+    def measureFanout(fanout: Map[DTL, Int]): Double =
+      fanout.keySet.toList.map(calc(_)).sum
 
     private def calc(node: DTL): Double = node match {
       case REF(_)  => 0
@@ -334,22 +338,7 @@ object Hardware {
   //
   // Old-school RTL NOR is preferred for 2 or 3 input NOR, which uses a voltage
   // divider instead of diodes.
-  sealed trait DTL {
-    import DTL._
-
-    def nodes: List[DTL] = this match {
-      case ref @ REF(_)  => List(ref)
-      case and @ AND(es) => and :: es.flatMap(_.nodes)
-      case  or @  OR(es) =>  or :: es.flatMap(_.nodes)
-      case not @ NOT(e)  => not :: e.nodes
-      case buf @ BUF(e)  => buf :: e.nodes
-      case nor @ NOR(es) => nor :: es.flatMap(_.nodes)
-      case noh @ NOH(es) => noh :: es.flatMap(_.nodes)
-      case  oh @  OH(es) =>  oh :: es.flatMap(_.nodes)
-      case xor @ XOR(a, b) => xor :: a.nodes ::: b.nodes
-      case xnor @ XNOR(a, b) => xnor :: a.nodes ::: b.nodes
-    }
-  }
+  sealed trait DTL
   object DTL {
     case class REF(channel: Int)       extends DTL
     case class AND(entries: List[DTL]) extends DTL
@@ -436,13 +425,31 @@ object Hardware {
       }
     }
 
-    // FIXME fanout
-    // this is not fanout, since subcomponents of a fanned out component
-    // will look like they are also fanning out. We should do a true fanout
-    // calculation instead, that walks the circuit and dedupes as it goes.
-    def counts(circuit: Map[String, Logic]): Map[DTL, Int] =
-      circuit.values.toList.map(materialise(_)).flatMap(_.nodes).counts
+    def fanout(circuits: List[DTL]): Map[DTL, Int] = {
+      def fanout_seq(acc: Map[DTL, Int], els: List[DTL]) =
+        els.foldLeft(acc) { case (acc_, e) => fanout_(acc_, e)}
 
+      def fanout_(acc: Map[DTL, Int], c: DTL): Map[DTL, Int] = {
+        val acc_ = acc.incr(c)
+        if (acc.contains(c)) acc_
+        else c match {
+          case REF(_)  => acc_
+          case AND(es) => fanout_seq(acc_, es)
+          case  OR(es) => fanout_seq(acc_, es)
+          case NOT(e)  => fanout_seq(acc_, List(e))
+          case BUF(e)  => fanout_seq(acc_, List(e))
+          case NOR(es) => fanout_seq(acc_, es)
+          case NOH(es) => fanout_seq(acc_, es)
+          case  OH(es) => fanout_seq(acc_, es)
+          case XOR(a, b) => fanout_seq(acc_, List(a, b))
+          case XNOR(a, b) => fanout_seq(acc_, List(a, b))
+        }
+      }
+
+      circuits.foldLeft(Map.empty[DTL, Int]) {
+        case (acc, c) => fanout_(acc, c)
+      }
+    }
   }
 
 }
@@ -650,7 +657,7 @@ object Main {
     }
     val max_steps = 1000
 
-    val obj: Objective = Objective.DTL_Components(
+    val obj = Objective.DTL_Components(
       resistor = 0,
       npn = 1,
       pnp = 1,
@@ -710,19 +717,19 @@ object Main {
     }
 
     val soln = all_my_circuits.minBy(_._2)
-    // val shared = Hardware.DTL.counts(soln._1).filter {
-    //   case (Hardware.DTL.REF(_), _) => false
-    //   case (_, out) => out > 1
-    // }
-    // TODO note true shared components by calculating the fanout
+    val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
+    val shared = Hardware.DTL.fanout(impl.values.toList).filter {
+      case (Hardware.DTL.REF(_), _) => false
+      case (_, out) => out > 1
+    }
+
+    System.out.println(s"optimised = $soln")
+    System.out.println(s"SHARED = $shared ")
 
     // TODO output the DTL circuit in yosys format
+    System.out.println(s"IMPL = $impl")
 
-    System.out.println(s"""optimised = $soln""")
-
-    val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
-
-    System.out.println(impl)
+    // TODO fix the solver until it can be as efficient as the textbook soln
 
     val textbook = {
       import Hardware.DTL._
@@ -734,10 +741,11 @@ object Main {
       val Co = OR(AND(tmp :: Cin :: Nil) :: AND(A :: B :: Nil) :: Nil)
       val S = XOR(tmp, Cin)
 
-      // TODO cost the textbook soln
       Map("S" -> S, "Co" -> Co)
     }
     System.out.println(textbook)
+    val fanout_textbook = Hardware.DTL.fanout(textbook.values.toList)
+    System.out.println(s"text cost = ${obj.measureFanout(fanout_textbook)}")
 
   }
 

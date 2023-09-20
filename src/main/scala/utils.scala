@@ -21,10 +21,7 @@ object util {
 
   implicit class IterableOpz[A](private val as: Iterable[A]) extends AnyVal {
     def counts: Map[A, Int] = as.foldLeft(Map.empty[A, Int]) {
-      case (acc, a) => acc.updatedWith(a) {
-        case Some(c) => Some(c + 1)
-        case None => Some(1)
-      }
+      case (acc, a) => acc.incr(a)
     }
 
     def funzip[A1, A2](implicit f: A => (IterableOnce[A1], IterableOnce[A2])): (List[A1], List[A2]) = {
@@ -43,6 +40,21 @@ object util {
       }
     }
 
+  }
+
+  implicit class MapOpz[K](private val as: Map[K, Int]) extends AnyVal {
+    def merge(bs: Map[K, Int]): Map[K, Int] = bs.foldLeft(as) {
+      case (acc, (k, v)) => acc.updatedWith(k) {
+        case None => Some(v)
+        case Some(a) => Some(a + v)
+      }
+    }
+
+    def incr(k: K): Map[K, Int] = incr(k, 1)
+    def incr(k: K, i: Int): Map[K, Int] = as.updatedWith(k) {
+      case None => Some(i)
+      case Some(v) => Some(v + i)
+    }
   }
 
   def alpha_syms: LazyList[String] = LazyList.from(1).map { i_ =>
