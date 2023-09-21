@@ -73,27 +73,23 @@ object LocalRule {
     }
   }
 
-  // there are several situations where we would want to split up AND/OR. For
-  // example, we might want to maximise sharing of nodes across channels, or we
-  // might want to split out a part that can be further decomposed into a
-  // different kind of hardware-specific gate (such as XOR or NOH). Although we
-  // could look for those situations specifically, with global rules, it is much
-  // easier to just search every possibility and catch things that we didn't
-  // even think of.
+  // TODO this is too inefficient, so has been disabled. We should hand-code for
+  // the known situations that it would have detected such as maximising AND/OR
+  // or splitting something off that can be represented as XOR/OH/etc (which
+  // would mean moving reusable code from RTL into Logic).
   object Nest extends LocalRule {
     private def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
         entries.subsets(i).map { left => (left, entries.diff(left)) }
       }
 
-    // FIXME support 2+ so that we can split out shared components, needs
-    // some thought on the constructors.
+    // using hand-crafted constructors to avoid optimisations that remove redundancy
     override def perform(node: Logic): List[Logic] = node match {
-      case And(entries) if entries.size > 4 =>
-        subsets(entries).map { case (left, right) => And(left + And(right)) }
+      case And(entries) if entries.size > 1 =>
+        subsets(entries).map { case (left, right) => new And(left + new And(right)) }
 
-      case Or(entries) if entries.size > 4 =>
-        subsets(entries).map { case (left, right) => Or(left + Or(right))}
+      case Or(entries) if entries.size > 1 =>
+        subsets(entries).map { case (left, right) => new Or(left + new Or(right))}
 
       case _ => Nil
     }
@@ -304,14 +300,8 @@ object Objective {
       case NOR(es) => (2 + es.length) * resistor + npn
       case NOH(es) => 2 * resistor + npn + es.length * diode
       case  OH(es) => 2 * resistor + pnp + es.length * diode
-      case XOR(a, b) =>
-        val variant1 = 3 * resistor + 2 * npn
-        val variant2 = calc(OH(a :: b :: Nil))
-        math.min(variant1, variant2)
-      case XNOR(a, b) =>
-        val variant1 = 3 * resistor + 2 * pnp
-        val variant2 = calc(NOH(a :: b :: Nil))
-        math.min(variant1, variant2)
+      case XOR(es) => (es.length - 1) * (3 * resistor + 2 * npn)
+      case XNOR(es) => (es.length - 1) * (3 * resistor + 2 * pnp)
     }
   }
 
@@ -363,8 +353,13 @@ object Hardware {
     // encoding when diodes are expensive or take up too much space.
     // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
     // XOR / XNOR are probably best called PARITY when extended to higher arity.
-    case class XOR(a: DTL, b: DTL)     extends DTL // ⊕
-    case class XNOR(a: DTL, b: DTL)    extends DTL // ⊙
+    //
+    // TODO find an efficent way to implement multi-input XOR/XNOR
+    // otherwise, this should be viewed as nested XOR2 / XNOR2 at the hardware (with the most efficent )
+    case class XOR(a: List[DTL])     extends DTL // ⊕
+    case class XNOR(a: List[DTL])    extends DTL // ⊙
+
+    // TODO eval to verify that the desired Logic is retained
 
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
@@ -372,31 +367,31 @@ object Hardware {
 
       case Inv(e) => materialise(e) match {
         case OR(es) if es.size < 4 => NOR(es)
-        case XOR(a, b) => XNOR(a, b)
-        case XNOR(a, b) => XOR(a, b)
+        case XOR(es) => XNOR(es)
+        case XNOR(es) => XOR(es)
         case OH(es) => NOH(es)
         case NOH(es) => OH(es)
         case other => NOT(other)
       }
 
       case And(es) => es.toList match {
+        // TODO n-arity one-hot
         // x ⊕ y = (x + y) · (x' + y')
         // x ⊙ y = (x + y') · (x' + y)
         case List(Or(as), Or(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
           XOR(materialise(as.head), materialise(as.tail.head))
 
+        // TODO does this extend to n-arity nested XOR?
         // x ⊕ y = (x + y) · (x · y)'
         case List(Or(as), Inv(And(bs))) if as.size == 2 && as == bs =>
           XOR(materialise(as.head), materialise(as.tail.head))
+        // TODO rewrite to not need a second re-ordered check
         case List(Inv(And(bs)), Or(as)) if as.size == 2 && as == bs =>
           XOR(materialise(as.head), materialise(as.tail.head))
 
         case other =>
           AND(other.map(materialise(_)))
       }
-
-      // FIXME spot multi-arity XOR / XNOR (count parity), but how do we choose
-      // the ordering? Need to change the type signature.
 
       case Or(es) => es.toList match {
         // x ⊕ y = (x · y') + (x' · y)
@@ -407,19 +402,54 @@ object Hardware {
         case other =>
           //  OH(a, b, c) = (a · b' · c') + (a' · b · c') + (a' · b' · c)
           // NOH(a, b, c) = (a' · b · c)  + (a · b' · c)  + (a · b · c')
+          // XOR(a, b, c) = OH(a, b, c) + (a · b · c) (parity)
+          // XNOR(a, b, c) = NOH(a, b, c) + (a' · b' · c') (negative parity)
           // finding them without context is equivalent, so prefer NOH
           val (es, ands) = other.partitionMap {
             case and: And => Right(and)
             case e => Left(e)
           }
-          lazy val abc = {
-            val first = ands.head.entries
-            first.tail + Inv(first.head)
-          }
-          def expect_notonehot = abc.map { hot => (abc - hot) + Inv(hot) }
+          // this checks if everything is actually made out of the same stuff
+          lazy val abcs = ands.map { e =>
+            // we can leave this as a Set because we know that And will never
+            // contain an element and its inverse.
+            e.entries.map {
+              case Inv(a) => a
+              case a => a
+            }
+          }.toSet
+          lazy val abc = abcs.head
+          lazy val abc_ = abc.map(Inv(_))
 
-          if (es.isEmpty && ands == expect_notonehot)
-            NOH(abc.toList.map(materialise(_))) // would need to invert abc for OH
+          // there is probably a more efficient way to do this, but it's easy to
+          // debug code that produces exactly what we are looking for, and makes
+          // it easier to find subsets and their diff.
+          def expect_notonehot = abc.map { not => (abc - not) + Inv(not) }
+          def expect_onehot = abc_.map { hot => (abc_ - hot) + Inv(hot) }
+          lazy val expect_xor = (1 to abc_.size by 2).map { i =>
+            val parts = abc_.subsets(i).flatMap { subs =>
+              subs.map(Inv(_)) ++ (abc_.diff(subs))
+            }
+            And(parts.toSet)
+          }.toSet
+          def expect_xnor = expect_xor.map(Inv(_))
+
+          // FIXME get to the bottom of this
+
+          val isSpecial = es.isEmpty && abcs.size == 1
+          System.out.println(s"IN = $logic")
+          System.out.println(s"PARTED=$es ... $ands ... $abcs")
+          if (isSpecial) {
+            System.out.println(s"MATCHER = $expect_xor")
+          }
+          if (isSpecial && ands == expect_notonehot)
+            NOH(abc.toList.map(materialise(_)))
+          else if (isSpecial && ands == expect_onehot)
+            OH(abc.toList.map(materialise(_)))
+          else if (isSpecial && ands == expect_xor)
+            XOR(abc.toList.map(materialise(_)))
+          else if (isSpecial && ands == expect_xnor)
+            XNOR(abc.toList.map(materialise(_)))
           else
             OR(other.map(materialise(_)))
       }
@@ -441,14 +471,36 @@ object Hardware {
           case NOR(es) => fanout_seq(acc_, es)
           case NOH(es) => fanout_seq(acc_, es)
           case  OH(es) => fanout_seq(acc_, es)
-          case XOR(a, b) => fanout_seq(acc_, List(a, b))
-          case XNOR(a, b) => fanout_seq(acc_, List(a, b))
+          case XOR(es) => fanout_seq(acc_, es)
+          case XNOR(es) => fanout_seq(acc_, es)
         }
       }
 
       circuits.foldLeft(Map.empty[DTL, Int]) {
         case (acc, c) => fanout_(acc, c)
       }
+    }
+
+    object AND {
+      def apply(el: DTL, els: DTL*): AND = AND(el :: els.toList)
+    }
+    object OR {
+      def apply(el: DTL, els: DTL*): OR = OR(el :: els.toList)
+    }
+    object NOR {
+      def apply(el: DTL, els: DTL*): NOR = NOR(el :: els.toList)
+    }
+    object NOH {
+      def apply(el: DTL, els: DTL*): NOH = NOH(el :: els.toList)
+    }
+    object OH {
+      def apply(el: DTL, els: DTL*): OH = OH(el :: els.toList)
+    }
+    object XOR {
+      def apply(el: DTL, els: DTL*): XOR = XOR(el :: els.toList)
+    }
+    object XNOR {
+      def apply(el: DTL, els: DTL*): XNOR = XNOR(el :: els.toList)
     }
   }
 
@@ -549,7 +601,7 @@ object Logic {
   // structure enforces indempotency A . A = A
   // constructor enforces identity A . 1 = A
   // constructor enforces complementation A . A' = 0
-  case class And private(entries: Set[Logic]) extends Logic {
+  case class And private[logic](entries: Set[Logic]) extends Logic {
     override val hashCode: Int = entries.hashCode
     override def equals(that: Any): Boolean = that match {
       case thon: And => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
@@ -560,7 +612,7 @@ object Logic {
   // structure enforces indempotency A + A = A
   // constructor enforces identity A + 0 = A
   // constructor enforces complementation A + A' = 1
-  case class Or  private(entries: Set[Logic]) extends Logic {
+  case class Or  private[logic](entries: Set[Logic]) extends Logic {
     override val hashCode: Int = entries.hashCode
     override def equals(that: Any): Boolean = that match {
       case thon: Or => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
@@ -656,7 +708,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, Nest, UnNest, Eliminate, DeMorgan).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan).map(new Cached(_, 1024 * 1024))
     }
     val max_steps = 1000
 
@@ -741,7 +793,7 @@ object Main {
       val B = REF(1)
       val Cin = REF(2)
       val tmp = XOR(A, B)
-      val Co = OR(AND(tmp :: Cin :: Nil) :: AND(A :: B :: Nil) :: Nil)
+      val Co = OR(AND(tmp, Cin), AND(A, B))
       val S = XOR(tmp, Cin)
 
       Map("S" -> S, "Co" -> Co)
