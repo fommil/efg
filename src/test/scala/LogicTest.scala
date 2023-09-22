@@ -85,4 +85,6 @@ class LogicTest extends Test {
   def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))
 }
 
-// sbtn Test/testOnly -- *.LogicTest.testEliminate1
+// Local Variables:
+// scala-compile-suggestion: "sbtn Test/testOnly -- *.LogicTest.testEliminate1"
+// End:

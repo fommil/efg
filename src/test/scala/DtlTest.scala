@@ -17,7 +17,7 @@ class DtlTest extends Test {
 
   // TODO test all the other detectors...
 
-  def testXOR3: Unit = {
+  def testXOR: Unit = {
     val xor3 = Or(
       And(Inv(i0), Inv(i1), i2), // x' y' z
       And(Inv(i0), i1, Inv(i2)), // x' y  z'
@@ -33,4 +33,6 @@ class DtlTest extends Test {
 
 }
 
-// sbtn Test/testOnly -- *.DtlTest.testXOR3
+// Local Variables:
+// scala-compile-suggestion: "sbtn Test/testOnly -- *.DtlTest.testXOR"
+// End:

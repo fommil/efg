@@ -285,7 +285,7 @@ object Objective {
     import Hardware.DTL._
 
     override def measure(circuit: Map[String, Logic]): Double =
-      measureFanout(DTL.fanout(circuit.values.toList.map(DTL.materialise(_))))
+      measureFanout(DTL.fanout(circuit.values.toSet.map(DTL.materialise(_))))
 
     // BUF should really be counted a bit more...
     def measureFanout(fanout: Map[DTL, Int]): Double =
@@ -293,15 +293,15 @@ object Objective {
 
     private def calc(node: DTL): Double = node match {
       case REF(_)  => 0
-      case AND(es) => resistor + es.length * diode
-      case  OR(es) => resistor + es.length * diode
+      case AND(es) => resistor + es.size * diode
+      case  OR(es) => resistor + es.size * diode
       case NOT(_)  => 2 * resistor + npn
       case BUF(_)  => ???
-      case NOR(es) => (2 + es.length) * resistor + npn
-      case NOH(es) => 2 * resistor + npn + es.length * diode
-      case  OH(es) => 2 * resistor + pnp + es.length * diode
-      case XOR(es) => (es.length - 1) * (3 * resistor + 2 * npn)
-      case XNOR(es) => (es.length - 1) * (3 * resistor + 2 * pnp)
+      case NOR(es) => (2 + es.size) * resistor + npn
+      case NOH(es) => 2 * resistor + npn + es.size * diode
+      case  OH(es) => 2 * resistor + pnp + es.size * diode
+      case XOR(es) => (es.size - 1) * (3 * resistor + 2 * npn)
+      case XNOR(es) => (es.size - 1) * (3 * resistor + 2 * pnp)
     }
   }
 
@@ -328,8 +328,8 @@ object Hardware {
   sealed trait DTL
   object DTL {
     case class REF(channel: Int)       extends DTL
-    case class AND(entries: List[DTL]) extends DTL
-    case class OR (entries: List[DTL]) extends DTL
+    case class AND(entries: Set[DTL]) extends DTL
+    case class OR (entries: Set[DTL]) extends DTL
     case class NOT(entry: DTL)         extends DTL
 
     // amplifier to address fan-out constraints
@@ -338,16 +338,16 @@ object Hardware {
 
     // voltage divider (has fan-in constraints)
     // TODO calculate the fan-in constraint in Falstad and breadboard
-    case class NOR(entries: List[DTL]) extends DTL
+    case class NOR(entries: Set[DTL]) extends DTL
 
     // rectifier and NPN "Not One Hot". Equivalent to XNOR for 2 inputs but not any other arity.
     //
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
     // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
     // TODO calculate the fan-in constraint in Falstad and breadboard
-    case class NOH(entries: List[DTL]) extends DTL
+    case class NOH(entries: Set[DTL]) extends DTL
     // "One Hot" uses PNP, equivalent to XOR for 2 inputs.
-    case class OH (entries: List[DTL]) extends DTL
+    case class OH (entries: Set[DTL]) extends DTL
 
     // There are situations where it is preferable to use a transistor XOR
     // encoding when diodes are expensive or take up too much space.
@@ -356,8 +356,8 @@ object Hardware {
     //
     // TODO find an efficent way to implement multi-input XOR/XNOR
     // otherwise, this should be viewed as nested XOR2 / XNOR2 at the hardware (with the most efficent )
-    case class XOR(a: List[DTL])     extends DTL // ⊕
-    case class XNOR(a: List[DTL])    extends DTL // ⊙
+    case class XOR(a: Set[DTL])     extends DTL // ⊕
+    case class XNOR(a: Set[DTL])    extends DTL // ⊙
 
     // TODO eval to verify that the desired Logic is retained
 
@@ -389,26 +389,28 @@ object Hardware {
         case List(Inv(And(bs)), Or(as)) if as.size == 2 && as == bs =>
           XOR(materialise(as.head), materialise(as.tail.head))
 
-        case other =>
-          AND(other.map(materialise(_)))
+        case _ =>
+          AND(es.map(materialise(_)))
       }
 
+      // might be more efficient to not convert into a List
       case Or(es) => es.toList match {
         // x ⊕ y = (x · y') + (x' · y)
         // x ⊙ y = (x · y) + (x' · y')
         case List(And(as), And(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
           XNOR(materialise(as.head), materialise(as.tail.head))
 
-        case other =>
+        case _ =>
           //  OH(a, b, c) = (a · b' · c') + (a' · b · c') + (a' · b' · c)
           // NOH(a, b, c) = (a' · b · c)  + (a · b' · c)  + (a · b · c')
           // XOR(a, b, c) = OH(a, b, c) + (a · b · c) (parity)
           // XNOR(a, b, c) = NOH(a, b, c) + (a' · b' · c') (negative parity)
           // finding them without context is equivalent, so prefer NOH
-          val (es, ands) = other.partitionMap {
+          val (others, ands) = es.partitionMap {
             case and: And => Right(and)
             case e => Left(e)
           }
+
           // this checks if everything is actually made out of the same stuff
           lazy val abcs = ands.map { e =>
             // we can leave this as a Set because we know that And will never
@@ -417,7 +419,7 @@ object Hardware {
               case Inv(a) => a
               case a => a
             }
-          }.toSet
+          }
           lazy val abc = abcs.head
           lazy val abc_ = abc.map(Inv(_))
 
@@ -426,37 +428,29 @@ object Hardware {
           // it easier to find subsets and their diff.
           def expect_notonehot = abc.map { not => (abc - not) + Inv(not) }
           def expect_onehot = abc_.map { hot => (abc_ - hot) + Inv(hot) }
-          lazy val expect_xor = (1 to abc_.size by 2).map { i =>
-            val parts = abc_.subsets(i).flatMap { subs =>
-              subs.map(Inv(_)) ++ (abc_.diff(subs))
-            }
-            And(parts.toSet)
-          }.toSet
+          lazy val expect_xor = (1 to abc_.size by 2).toSet.flatMap { i: Int =>
+            abc_.subsets(i).map { subs =>
+              And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
+            }.toSet
+          }
           def expect_xnor = expect_xor.map(Inv(_))
 
-          // FIXME get to the bottom of this
-
-          val isSpecial = es.isEmpty && abcs.size == 1
-          System.out.println(s"IN = $logic")
-          System.out.println(s"PARTED=$es ... $ands ... $abcs")
-          if (isSpecial) {
-            System.out.println(s"MATCHER = $expect_xor")
-          }
+          val isSpecial = others.isEmpty && abcs.size == 1
           if (isSpecial && ands == expect_notonehot)
-            NOH(abc.toList.map(materialise(_)))
+            NOH(abc.map(materialise(_)))
           else if (isSpecial && ands == expect_onehot)
-            OH(abc.toList.map(materialise(_)))
+            OH(abc.map(materialise(_)))
           else if (isSpecial && ands == expect_xor)
-            XOR(abc.toList.map(materialise(_)))
+            XOR(abc.map(materialise(_)))
           else if (isSpecial && ands == expect_xnor)
-            XNOR(abc.toList.map(materialise(_)))
+            XNOR(abc.map(materialise(_)))
           else
-            OR(other.map(materialise(_)))
+            OR(es.map(materialise(_)))
       }
     }
 
-    def fanout(circuits: List[DTL]): Map[DTL, Int] = {
-      def fanout_seq(acc: Map[DTL, Int], els: List[DTL]) =
+    def fanout(circuits: Set[DTL]): Map[DTL, Int] = {
+      def fanout_seq(acc: Map[DTL, Int], els: Set[DTL]) =
         els.foldLeft(acc) { case (acc_, e) => fanout_(acc_, e)}
 
       def fanout_(acc: Map[DTL, Int], c: DTL): Map[DTL, Int] = {
@@ -466,8 +460,8 @@ object Hardware {
           case REF(_)  => acc_
           case AND(es) => fanout_seq(acc_, es)
           case  OR(es) => fanout_seq(acc_, es)
-          case NOT(e)  => fanout_seq(acc_, List(e))
-          case BUF(e)  => fanout_seq(acc_, List(e))
+          case NOT(e)  => fanout_seq(acc_, Set(e))
+          case BUF(e)  => fanout_seq(acc_, Set(e))
           case NOR(es) => fanout_seq(acc_, es)
           case NOH(es) => fanout_seq(acc_, es)
           case  OH(es) => fanout_seq(acc_, es)
@@ -482,25 +476,25 @@ object Hardware {
     }
 
     object AND {
-      def apply(el: DTL, els: DTL*): AND = AND(el :: els.toList)
+      def apply(el: DTL, els: DTL*): AND = AND(els.toSet + el)
     }
     object OR {
-      def apply(el: DTL, els: DTL*): OR = OR(el :: els.toList)
+      def apply(el: DTL, els: DTL*): OR = OR(els.toSet + el)
     }
     object NOR {
-      def apply(el: DTL, els: DTL*): NOR = NOR(el :: els.toList)
+      def apply(el: DTL, els: DTL*): NOR = NOR(els.toSet + el)
     }
     object NOH {
-      def apply(el: DTL, els: DTL*): NOH = NOH(el :: els.toList)
+      def apply(el: DTL, els: DTL*): NOH = NOH(els.toSet + el)
     }
     object OH {
-      def apply(el: DTL, els: DTL*): OH = OH(el :: els.toList)
+      def apply(el: DTL, els: DTL*): OH = OH(els.toSet + el)
     }
     object XOR {
-      def apply(el: DTL, els: DTL*): XOR = XOR(el :: els.toList)
+      def apply(el: DTL, els: DTL*): XOR = XOR(els.toSet + el)
     }
     object XNOR {
-      def apply(el: DTL, els: DTL*): XNOR = XNOR(el :: els.toList)
+      def apply(el: DTL, els: DTL*): XNOR = XNOR(els.toSet + el)
     }
   }
 
@@ -773,7 +767,7 @@ object Main {
 
     val soln = all_my_circuits.minBy(_._2)
     val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
-    val shared = Hardware.DTL.fanout(impl.values.toList).filter {
+    val shared = Hardware.DTL.fanout(impl.values.toSet).filter {
       case (Hardware.DTL.REF(_), _) => false
       case (_, out) => out > 1
     }
@@ -799,7 +793,7 @@ object Main {
       Map("S" -> S, "Co" -> Co)
     }
     System.out.println(textbook)
-    val fanout_textbook = Hardware.DTL.fanout(textbook.values.toList)
+    val fanout_textbook = Hardware.DTL.fanout(textbook.values.toSet)
     System.out.println(s"text cost = ${obj.measureFanout(fanout_textbook)}")
 
   }
