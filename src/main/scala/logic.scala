@@ -276,12 +276,17 @@ object LocalRule {
 }
 
 trait GlobalRule {
-  // it is difficult to code up global rules that only perform one step at a
-  // time so these rules are allowed to take every advantage that they can see.
+  // like LocalRule, implementations are encouraged to return each possible as
+  // an entry in a list instead of being aggressive.
   def perform(circuits: Map[String, Logic]): List[Map[String, Logic]]
 }
 
 object GlobalRule {
+  // finds all AND/OR gates that have subsets that could be utilised by other
+  // overlapping parts of the circuit, and splits them out as nested entries.
+  // Each "step" only performs one replacement action on the entire circuit even
+  // if two steps are needed for sharing to occur (e.g. consider two overlapping
+  // OR gates where both need to be unnested).
   object Shared extends GlobalRule {
     override def perform(circuits: Map[String, Logic]): List[Map[String, Logic]] = {
       ???
