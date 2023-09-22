@@ -296,7 +296,7 @@ object Objective {
       case AND(es) => resistor + es.size * diode
       case  OR(es) => resistor + es.size * diode
       case NOT(_)  => 2 * resistor + npn
-      case BUF(_)  => ???
+      case BUF(_, _)  => ???
       case NOR(es) => (2 + es.size) * resistor + npn
       case NOH(es) => 2 * resistor + npn + es.size * diode
       case  OH(es) => 2 * resistor + pnp + es.size * diode
@@ -327,14 +327,16 @@ object Hardware {
   // divider instead of diodes.
   sealed trait DTL
   object DTL {
-    case class REF(channel: Int)       extends DTL
+    case class REF(channel: Int)      extends DTL
     case class AND(entries: Set[DTL]) extends DTL
     case class OR (entries: Set[DTL]) extends DTL
-    case class NOT(entry: DTL)         extends DTL
+    case class NOT(entry: DTL)        extends DTL
 
-    // amplifier to address fan-out constraints
+    // amplifier(s) to address fan-out constraints. Number required depends on
+    // the fanout of the node.
+    //
     // TODO an extra pass after materialise to add BUF for large fan-out
-    case class BUF(entry: DTL)         extends DTL
+    case class BUF(entry: DTL, id: Int) extends DTL
 
     // voltage divider (has fan-in constraints)
     // TODO calculate the fan-in constraint in Falstad and breadboard
@@ -354,8 +356,8 @@ object Hardware {
     // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
     // XOR / XNOR are probably best called PARITY when extended to higher arity.
     //
-    // TODO find an efficent way to implement multi-input XOR/XNOR
-    // otherwise, this should be viewed as nested XOR2 / XNOR2 at the hardware (with the most efficent )
+    // TODO find an efficent way to implement multi-input XOR/XNOR otherwise,
+    // this should be viewed as nested XOR2 / XNOR2 at the hardware.
     case class XOR(a: Set[DTL])     extends DTL // ⊕
     case class XNOR(a: Set[DTL])    extends DTL // ⊙
 
@@ -461,7 +463,7 @@ object Hardware {
           case AND(es) => fanout_seq(acc_, es)
           case  OR(es) => fanout_seq(acc_, es)
           case NOT(e)  => fanout_seq(acc_, Set(e))
-          case BUF(e)  => fanout_seq(acc_, Set(e))
+          case BUF(e, _) => fanout_seq(acc_, Set(e))
           case NOR(es) => fanout_seq(acc_, es)
           case NOH(es) => fanout_seq(acc_, es)
           case  OH(es) => fanout_seq(acc_, es)
