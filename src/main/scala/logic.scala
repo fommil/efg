@@ -73,10 +73,11 @@ object LocalRule {
     }
   }
 
-  // TODO this is too inefficient, so has been disabled. We should hand-code for
-  // the known situations that it would have detected such as maximising AND/OR
-  // or splitting something off that can be represented as XOR/OH/etc (which
-  // would mean moving reusable code from RTL into Logic).
+  // This is too inefficient, so has been disabled, but the code remains for
+  // reference. We hand-code for the known situations that it would have
+  // detected such as maximising AND/OR or splitting something off that can be
+  // represented as XOR/OH (c.f. Split). But obviously that doesn't catch
+  // everything.
   object Nest extends LocalRule {
     private def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
@@ -93,6 +94,13 @@ object LocalRule {
 
       case _ => Nil
     }
+  }
+
+  // a subset of Nest whereby we detect and split out subsets of nodes that can
+  // be represented by dedicated logic gates.
+  object Split extends LocalRule {
+    override def perform(node: Logic): List[Logic] =
+      Set(node.asXOR, node.asXNOR, node.asOH, node.asNOH).flatten.toList
   }
 
   // Eliminate by absorption
@@ -265,6 +273,21 @@ object LocalRule {
   // and perform a straight swap for the more efficient implementation. That might
   // be cheaper and more straightforward than finding dterms.
 
+}
+
+trait GlobalRule {
+  // it is difficult to code up global rules that only perform one step at a
+  // time so these rules are allowed to take every advantage that they can see.
+  def perform(circuits: Map[String, Logic]): List[Map[String, Logic]]
+}
+
+object GlobalRule {
+  object Shared extends GlobalRule {
+    override def perform(circuits: Map[String, Logic]): List[Map[String, Logic]] = {
+      ???
+      // FIXME implement GlobalRule.Shared and wire it up
+    }
+  }
 }
 
 trait Objective {
@@ -583,6 +606,11 @@ sealed trait Logic { self =>
     }
   }
 
+  def asXOR: Option[Logic] = ???
+  def asXNOR: Option[Logic] = ???
+  def asOH: Option[Logic] = ???
+  def asNOH: Option[Logic] = ???
+
 }
 object Logic {
   // constructor enforces involution: (A')' = A
@@ -704,7 +732,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split).map(new Cached(_, 1024 * 1024))
     }
     val max_steps = 1000
 

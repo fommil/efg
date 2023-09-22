@@ -63,6 +63,7 @@ class LogicTest extends Test {
 
   def testUnNest: Unit = propLocalRule(UnNest)
   def testNest: Unit = propLocalRule(Nest)
+  def testSplit: Unit = propLocalRule(Split)
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
