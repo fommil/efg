@@ -99,8 +99,9 @@ object LocalRule {
   // a subset of Nest whereby we detect and split out subsets of nodes that can
   // be represented by dedicated logic gates.
   object Split extends LocalRule {
-    override def perform(node: Logic): List[Logic] =
-      Set(node.asXOR, node.asXNOR, node.asOH, node.asNOH).flatten.toList
+    // FIXME implement by iterating through all subsets and checking the is* methods
+    override def perform(node: Logic): List[Logic] = ???
+    // Set(node.asXOR, node.asXNOR, node.asOH, node.asNOH).flatten.toList
   }
 
   // Eliminate by absorption
@@ -231,22 +232,26 @@ object LocalRule {
   // costly to search. Simple triggers such as counts of inverted contents don't
   // tend to reach the optimal circuits.
   object DeMorgan extends LocalRule {
-    def perform(node: Logic): List[Logic] = node match {
+    def perform(node: Logic): List[Logic] = {
+      val node_ = perform_(node)
+      if (node_ == node) Nil else List(node_)
+    }
+    def perform_(node: Logic): Logic = node match {
       case And(nodes) =>
         val (norm, inv) = nodes.partitionMap {
           case Inv(e) => Right(e)
           case e => Left(Inv(e))
         }
-        List(Inv(Or(norm ++ inv)))
+        Inv(Or(norm ++ inv))
 
       case Or(nodes) =>
         val (norm, inv) = nodes.partitionMap {
           case Inv(e) => Right(e)
           case e => Left(Inv(e))
         }
-        List(Inv(And(norm ++ inv)))
+        Inv(And(norm ++ inv))
 
-      case _ => Nil
+      case _ => node
     }
   }
 
@@ -599,8 +604,7 @@ sealed trait Logic { self =>
       }
     }
 
-  // this gets called so much it's worth caching
-  val nodes: List[Logic] = {
+  def nodes: List[Logic] = {
     def nodes_(es: Iterable[Logic]): List[Logic] = es.toList.flatMap(_.nodes)
     self match {
       case True => self :: Nil
@@ -611,10 +615,67 @@ sealed trait Logic { self =>
     }
   }
 
-  def asXOR: Option[Logic] = ???
-  def asXNOR: Option[Logic] = ???
-  def asOH: Option[Logic] = ???
-  def asNOH: Option[Logic] = ???
+  // the following as* methods return the parameters of the indicated gate if
+  // this node can be represented by that gate. This is important for both rule
+  // application and hardware dependent materialisation stages. A logic node may
+  // be represented by multiple gates, e.g. XOR is the same as OH for 2 inputs.
+  def asXOR: Set[Logic] = this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => e.asXNOR
+    case And(es) => if (es.size != 2) Set.empty else {
+      // x ⊕ y = (x + y) · (x' + y')
+      // TODO extend to n-arity
+      //
+      // by applying DeMorgans to And, it allows us to consider the form
+      //
+      // x ⊕ y = (x + y) · (x · y)'
+      //
+      // This is not strictly necessary since we should arrive there by
+      // application of the local rules but it's easy to do so why not.
+      val es_ = es.map {
+        case a@ And(_) => LocalRule.DeMorgan.perform_(a)
+        case e => e
+      }
+      val abc = level2(es_)
+      if (abc.size != 2) Set.empty
+      else {
+        val x = abc.head
+        val y = abc.tail.head
+        if (es == Set(Or(x, y), Or(Inv(x), Inv(y)))) abc
+        else Set.empty
+      }
+    }
+
+    case Or(es) =>
+      // x ⊕ y = (x' · y) + (x · y')
+      // extending to n-arity matches all odd parities
+
+      // FIXME implement
+
+      ???
+  }
+
+  // x ⊙ y = (x + y') · (x' + y)
+  def asXNOR: Set[Logic] = ???
+  def asOH: Set[Logic] = ???
+  def asNOH: Set[Logic] = ???
+
+  // returns all elements at the next level with inversions removed
+  private def level2(els: Set[Logic]): Set[Logic] = {
+    def norm(e: Logic): Logic = e match {
+      case Inv(e) => e
+      case e => e
+    }
+
+    els.flatMap {
+      case Or(es) => es.map(norm(_))
+      case And(es) => es.map(norm(_))
+      case Inv(And(es)) => es.map(norm(_))
+      case Inv(Or(es)) => es.map(norm(_))
+      case _ => Nil
+    }
+  }
 
 }
 object Logic {
