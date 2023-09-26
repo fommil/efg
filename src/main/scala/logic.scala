@@ -409,79 +409,18 @@ object Hardware {
         case other => NOT(other)
       }
 
-      case And(es) => es.toList match {
-        // TODO n-arity one-hot
-        // x ⊕ y = (x + y) · (x' + y')
-        // x ⊙ y = (x + y') · (x' + y)
-        case List(Or(as), Or(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
-          XOR(materialise(as.head), materialise(as.tail.head))
+      case And(es) => AND(es.map(materialise(_)))
 
-        // TODO does this extend to n-arity nested XOR?
-        // x ⊕ y = (x + y) · (x · y)'
-        case List(Or(as), Inv(And(bs))) if as.size == 2 && as == bs =>
-          XOR(materialise(as.head), materialise(as.tail.head))
-        // TODO rewrite to not need a second re-ordered check
-        case List(Inv(And(bs)), Or(as)) if as.size == 2 && as == bs =>
-          XOR(materialise(as.head), materialise(as.tail.head))
-
-        case _ =>
-          AND(es.map(materialise(_)))
-      }
-
-      // might be more efficient to not convert into a List
-      case Or(es) => es.toList match {
-        // x ⊕ y = (x · y') + (x' · y)
-        // x ⊙ y = (x · y) + (x' · y')
-        case List(And(as), And(bs)) if as.size == 2 && bs == as.map(Inv(_)) =>
-          XNOR(materialise(as.head), materialise(as.tail.head))
-
-        case _ =>
-          //  OH(a, b, c) = (a · b' · c') + (a' · b · c') + (a' · b' · c)
-          // NOH(a, b, c) = (a' · b · c)  + (a · b' · c)  + (a · b · c')
-          // XOR(a, b, c) = OH(a, b, c) + (a · b · c) (parity)
-          // XNOR(a, b, c) = NOH(a, b, c) + (a' · b' · c') (negative parity)
-          // finding them without context is equivalent, so prefer NOH
-          val (others, ands) = es.partitionMap {
-            case and: And => Right(and)
-            case e => Left(e)
-          }
-
-          // this checks if everything is actually made out of the same stuff
-          lazy val abcs = ands.map { e =>
-            // we can leave this as a Set because we know that And will never
-            // contain an element and its inverse.
-            e.entries.map {
-              case Inv(a) => a
-              case a => a
-            }
-          }
-          lazy val abc = abcs.head
-          lazy val abc_ = abc.map(Inv(_))
-
-          // there is probably a more efficient way to do this, but it's easy to
-          // debug code that produces exactly what we are looking for, and makes
-          // it easier to find subsets and their diff.
-          def expect_notonehot = abc.map { not => (abc - not) + Inv(not) }
-          def expect_onehot = abc_.map { hot => (abc_ - hot) + Inv(hot) }
-          lazy val expect_xor = (1 to abc_.size by 2).toSet.flatMap { i: Int =>
-            abc_.subsets(i).map { subs =>
-              And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
-            }.toSet
-          }
-          def expect_xnor = expect_xor.map(Inv(_))
-
-          val isSpecial = others.isEmpty && abcs.size == 1
-          if (isSpecial && ands == expect_notonehot)
-            NOH(abc.map(materialise(_)))
-          else if (isSpecial && ands == expect_onehot)
-            OH(abc.map(materialise(_)))
-          else if (isSpecial && ands == expect_xor)
-            XOR(abc.map(materialise(_)))
-          else if (isSpecial && ands == expect_xnor)
-            XNOR(abc.map(materialise(_)))
-          else
-            OR(es.map(materialise(_)))
-      }
+      case e@ Or(es) =>
+        val noh = e.asNOH
+        lazy val oh = e.asOH
+        lazy val xor = e.asXOR
+        lazy val xnor = e.asXNOR
+        if (noh.nonEmpty) NOH(noh.map(materialise(_)))
+        else if (oh.nonEmpty) OH(oh.map(materialise(_)))
+        else if (xor.nonEmpty) XOR(xor.map(materialise(_)))
+        else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
+        else OR(es.map(materialise(_)))
     }
 
     def fanout(circuits: Set[DTL]): Map[DTL, Int] = {
@@ -619,47 +558,82 @@ sealed trait Logic { self =>
   // this node can be represented by that gate. This is important for both rule
   // application and hardware dependent materialisation stages. A logic node may
   // be represented by multiple gates, e.g. XOR is the same as OH for 2 inputs.
+
+  // x ⊕ y = (x' · y) + (x · y')
+  //
+  // extending to n-arity matches all odd parities.
   def asXOR: Set[Logic] = this match {
     case True => Set.empty
     case In(_) => Set.empty
     case Inv(e) => e.asXNOR
-    case And(es) => if (es.size != 2) Set.empty else {
-      // x ⊕ y = (x + y) · (x' + y')
-      // TODO extend to n-arity
-      //
-      // by applying DeMorgans to And, it allows us to consider the form
-      //
-      // x ⊕ y = (x + y) · (x · y)'
-      //
-      // This is not strictly necessary since we should arrive there by
-      // application of the local rules but it's easy to do so why not.
-      val es_ = es.map {
-        case a@ And(_) => LocalRule.DeMorgan.perform_(a)
-        case e => e
-      }
-      val abc = level2(es_)
-      if (abc.size != 2) Set.empty
-      else {
-        val x = abc.head
-        val y = abc.tail.head
-        if (es == Set(Or(x, y), Or(Inv(x), Inv(y)))) abc
-        else Set.empty
-      }
-    }
-
+    case And(_) => Set.empty // reachable by DeMorgan
     case Or(es) =>
-      // x ⊕ y = (x' · y) + (x · y')
-      // extending to n-arity matches all odd parities
+      val abc = level2(es)
+      val abc_ = abc.map(Inv(_))
+      val expect_xor = (1 to abc_.size by 2).toSet.flatMap { i: Int =>
+        abc_.subsets(i).map { subs =>
+          And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
+        }.toSet
+      }
 
-      // FIXME implement
-
-      ???
+      if (es == expect_xor) abc
+      else Set.empty
   }
 
-  // x ⊙ y = (x + y') · (x' + y)
-  def asXNOR: Set[Logic] = ???
-  def asOH: Set[Logic] = ???
-  def asNOH: Set[Logic] = ???
+  // x ⊙ y = (x · y) + (x' · y')
+  //
+  // extending to n-arity is everything except odd parities.
+  def asXNOR: Set[Logic] =  this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => e.asXOR
+    case And(_) => Set.empty // reachable by DeMorgan
+    case Or(es) =>
+      val abc = level2(es)
+      val abc_ = abc.map(Inv(_))
+      val expect_xnor = (1 to abc_.size).filter(_ % 2 == 0).toSet.flatMap { i: Int =>
+        abc_.subsets(i).map { subs =>
+          And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
+        }.toSet
+      } + And(abc_)
+
+      if (es == expect_xnor) abc
+      else Set.empty
+  }
+
+  def asOH: Set[Logic] = this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => e.asNOH
+    case And(_) => Set.empty // reachable by DeMorgan
+    case Or(es) =>
+      val abc = level2(es)
+      val abc_ = abc.map(Inv(_))
+      val expect_oh = abc_.map { a =>
+        And((abc_ - a) + Inv(a))
+      }
+
+      if (es == expect_oh) abc
+      else Set.empty
+  }
+
+  def asNOH: Set[Logic] =  this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => e.asOH
+    case And(_) => Set.empty // reachable by DeMorgan
+    case Or(es) =>
+      val abc = level2(es)
+      val abc_ = abc.map(Inv(_))
+      val expect_noh = (2 to abc_.size).toSet.flatMap { i: Int =>
+        abc_.subsets(i).map { subs =>
+          And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
+        }.toSet
+      } + And(abc_)
+
+      if (es == expect_noh) abc
+      else Set.empty
+  }
 
   // returns all elements at the next level with inversions removed
   private def level2(els: Set[Logic]): Set[Logic] = {

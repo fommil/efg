@@ -15,8 +15,6 @@ class DtlTest extends Test {
   val I1 = REF(1)
   val I2 = REF(2)
 
-  // TODO test all the other detectors...
-
   def testXOR: Unit = {
     val xor3 = Or(
       And(Inv(i0), Inv(i1), i2), // x' y' z

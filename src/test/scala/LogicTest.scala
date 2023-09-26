@@ -57,6 +57,70 @@ class LogicTest extends Test {
       }
     }
 
+  def testXOR: Unit = {
+    val node2 = Or(
+      And(Inv(In(0)), In(1)),
+      And(In(0), Inv(In(1))),
+    )
+    assertEquals(Set(In(0), In(1)), node2.asXOR)
+
+    val node3 = Or(
+      And(Inv(In(0)), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), Inv(In(2))),
+      And(In(0), In(1), In(2)),
+    )
+    assertEquals(Set(In(0), In(1), In(2)), node3.asXOR)
+  }
+
+  def testXNOR: Unit = {
+    val node2 = Or(
+      And(Inv(In(0)), Inv(In(1))),
+      And(In(0), In(1)),
+    )
+    assertEquals(Set(In(0), In(1)), node2.asXNOR)
+
+    val node3 = Or(
+      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+      And(In(0), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), In(2)),
+    )
+    assertEquals(Set(In(0), In(1), In(2)), node3.asXNOR)
+  }
+
+  def testOH: Unit = {
+    val node2 = Or(
+      And(Inv(In(0)), In(1)),
+      And(In(0), Inv(In(1))),
+    )
+    assertEquals(Set(In(0), In(1)), node2.asOH)
+
+    val node3 = Or(
+      And(Inv(In(0)), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), Inv(In(2))),
+    )
+    assertEquals(Set(In(0), In(1), In(2)), node3.asOH)
+  }
+
+  def testNOH: Unit = {
+    val node2 = Or(
+      And(Inv(In(0)), Inv(In(1))),
+      And(In(0), In(1)),
+    )
+    assertEquals(Set(In(0), In(1)), node2.asNOH)
+
+    val node3 = Or(
+      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+      And(In(0), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), In(2)),
+      And(In(0), In(1), In(2)),
+    )
+    assertEquals(Set(In(0), In(1), In(2)), node3.asNOH)
+  }
+
   def propLocalRule(rule: LocalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) {
     ast => assertLocalRule(rule, ast)
   }
