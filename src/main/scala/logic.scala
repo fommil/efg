@@ -152,9 +152,9 @@ object LocalRule {
           if (entries_.isEmpty) None else Some(And(entries_))
         }
 
-        // FIXME the logic is wrong, because when we notice that one of our AND
-        // elements has something in common with the common set, we should just
-        // reduce the entire AND.
+        // FIXME the logic is wrong, because when we notice that one of our OR
+        // elements has something in common with the common set at the current
+        // level, we should just reduce the entire OR.
       case node: Or =>
         def flatten_factors(outer: Or): Set[Logic] = outer.entries.flatMap {
           case inner: Or => flatten_factors(inner)
@@ -162,6 +162,9 @@ object LocalRule {
         }
         val flattened_factors = flatten_factors(node)
 
+        // this is where the logic is wrong, it's not that the factors overlap
+        // the common ones, it's that if anything at any level beneath the
+        // current level overlaps then the entire OR should collapse.
         if (flattened_factors.overlaps(common_products)) None
         else {
           lazy val common_sums_ = common_sums ++ flattened_factors
