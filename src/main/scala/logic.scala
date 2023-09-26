@@ -101,11 +101,13 @@ object LocalRule {
   object Split extends LocalRule {
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
-        Nest.subsets(es).flatMap {
-          case (left, right) =>
-            val n = Or(left)
+        (2 to (es.size + 1) / 2).toList.flatMap { i =>
+          es.subsets(i).flatMap { sub =>
+            val n = new Or(sub)
+            // TODO cached as* methods would be beneficial (and elsewhere used)...
             if (n.asNOH.isEmpty && n.asOH.isEmpty && n.asXNOR.isEmpty && n.asXOR.isEmpty) None
-            else Some(new Or(right + n))
+            else Some(new Or(es.diff(sub) + n))
+          }
         }
 
       case _ => Nil
@@ -117,25 +119,19 @@ object LocalRule {
   // A.(A + B) = A
   // A + (A.B) = A
   //
-  // Although technically a LocalRule, it is always optimal to perform this on
-  // the root nodes.
+  // This removes all branches that would evaluate to true, and must look to the
+  // leaves to do so.
+  //
+  // Application on the root does not imply application on individual
+  // sub-branches, it only seeks to remove branches that are redundant with
+  // respect to the current node. There's probably a more efficient recursive
+  // way to do this such that a single application at the root is all that is
+  // needed, but this is nice and simple.
   object Eliminate extends LocalRule {
     // The core rule logic exposed for other rules to use directly when there is
     // an expected immediate opportunity for elimination.
-    //
-    // We have to recurse all the way to the branches since the common factors
-    // cannot be obtained in the opposite direction. Note that we need to be
-    // careful to track nested AND and ORs separately. For example, A.(B + ((A +
-    // D).C)) (AND(OR(AND(...)))) only eliminates the D in the (A + D) term
-    // to A.C, not A. To achieve this we keep a running record of what the
-    // common sum and products are, so that they can eliminate independently of
-    // each other.
-    def eliminate(node: Logic): Logic = {
-      // .get is safe because we can never get a None from the delegate when the
-      // common factors are empty.
-      val repl = eliminate_(node, Set.empty, Set.empty).get
-      if (repl == node) node else repl // return same instance when possible
-    }
+    def eliminate(node: Logic): Logic = ???
+
     // Returns None if the node should be eliminated, otherwise a Some of a
     // (potentially) reduced tree.
     private def eliminate_(node: Logic, common_sums: Set[Logic], common_products: Set[Logic]): Option[Logic] = node match {
@@ -156,6 +152,9 @@ object LocalRule {
           if (entries_.isEmpty) None else Some(And(entries_))
         }
 
+        // FIXME the logic is wrong, because when we notice that one of our AND
+        // elements has something in common with the common set, we should just
+        // reduce the entire AND.
       case node: Or =>
         def flatten_factors(outer: Or): Set[Logic] = outer.entries.flatMap {
           case inner: Or => flatten_factors(inner)
@@ -170,12 +169,12 @@ object LocalRule {
             case flip: And => eliminate_(flip, common_sums_ - flip, common_products)
             case e => Some(e)
           }
-          if (entries_.isEmpty) None else Some(Or(entries_))
+          if (entries_.size < node.entries.size) None else Some(Or(entries_))
         }
 
-      case Inv(e) =>
-        // flip and invert the factors
-        eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
+      // case Inv(e) =>
+      //   // flip and invert the factors
+      //   eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
 
       case _ => Some(node)
     }

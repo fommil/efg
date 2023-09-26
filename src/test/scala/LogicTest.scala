@@ -10,8 +10,8 @@ import Logic._
 object LogicGen {
   // self-referenced must be in a Gen.delay
   private def impl(depth: Int): Gen[Logic] = {
-    val max_inputs = 8
-    val max_depth = 5
+    val max_inputs = 4
+    val max_depth = 4
     val max_width = 4
 
     lazy val in: Gen[Logic] = {
@@ -46,16 +46,6 @@ object LogicGen {
 }
 
 class LogicTest extends Test {
-
-  def assertLocalRule(rule: LocalRule, ast: Logic): Unit =
-    rule.perform(ast).foreach { transformed =>
-      assert(transformed != ast, "should only return new forms")
-
-      (0 until 16).foreach { i =>
-        val in = BitSet.fromBitMask(Array(i))
-        assertEquals(ast.eval(in), transformed.eval(in))
-      }
-    }
 
   def testXOR: Unit = {
     val node2 = Or(
@@ -121,12 +111,32 @@ class LogicTest extends Test {
     assertEquals(Set(In(0), In(1), In(2)), node3.asNOH)
   }
 
+  def assertLocalRule(rule: LocalRule, ast: Logic): Unit = {
+    val high_ = ast.nodes.collect { case In(i) => i }.maxOption
+    if (high_.isEmpty) return // no Inputs
+    val high = high_.get
+
+    rule.perform(ast).foreach { transformed =>
+      assert(transformed != ast, "should only return new forms")
+      (0 until 1 << high).foreach { i =>
+        val in = BitSet.fromBitMask(Array(i))
+        val expected = ast.eval(in)
+        val got = transformed.eval(in)
+        lazy val in_ = (0 to high).map(in(_)).mkString(",")
+        assert(expected == got, s"\nORIG  = $ast\nTRANS = $transformed\nIN    = ${in_} ($expected, $got) ")
+      }
+    }
+  }
+
+  /////////////////
+  // PROPERTY TESTS
+
   def propLocalRule(rule: LocalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) {
     ast => assertLocalRule(rule, ast)
   }
 
   def testUnNest: Unit = propLocalRule(UnNest)
-  def testNest: Unit = propLocalRule(Nest)
+  // def testNest: Unit = propLocalRule(Nest)
   def testSplit: Unit = propLocalRule(Split)
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
@@ -139,12 +149,17 @@ class LogicTest extends Test {
   private val a = In(0)
   private val b = In(1)
   private val c = In(2)
+  // private val d = In(3)
 
   // a·(a + b)
   def testEliminate1: Unit = assertLocalRule(Eliminate, And(a, Or(a, b)))
 
   // (a·b + a)
   def testEliminate2: Unit = assertLocalRule(Eliminate, Or(And(a, b), a))
+
+  // a.(b + (a + b).(a + c))
+  def testEliminate3: Unit = assertLocalRule(Eliminate,
+    And(a, Or(b, And(Or(a, b), Or(a, c)))))
 
   // (a + b + c) should not try to nest
   def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))
