@@ -79,7 +79,7 @@ object LocalRule {
   // represented as XOR/OH (c.f. Split). But obviously that doesn't catch
   // everything.
   object Nest extends LocalRule {
-    private def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
+    def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
         entries.subsets(i).map { left => (left, entries.diff(left)) }
       }
@@ -99,9 +99,17 @@ object LocalRule {
   // a subset of Nest whereby we detect and split out subsets of nodes that can
   // be represented by dedicated logic gates.
   object Split extends LocalRule {
-    // FIXME implement by iterating through all subsets and checking the is* methods
-    override def perform(node: Logic): List[Logic] = ???
-    // Set(node.asXOR, node.asXNOR, node.asOH, node.asNOH).flatten.toList
+    override def perform(node: Logic): List[Logic] = node match {
+      case Or(es) if es.size > 2 =>
+        Nest.subsets(es).flatMap {
+          case (left, right) =>
+            val n = Or(left)
+            if (n.asNOH.isEmpty && n.asOH.isEmpty && n.asXNOR.isEmpty && n.asXOR.isEmpty) None
+            else Some(new Or(right + n))
+        }
+
+      case _ => Nil
+    }
   }
 
   // Eliminate by absorption
