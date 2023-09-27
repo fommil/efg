@@ -489,6 +489,11 @@ sealed trait Logic { self =>
       else Set.empty
   }
 
+  // TODO using level2 as the only seed is bad because it only considers gates
+  // where the uninverted inputs are the dimensions of the gate. But it may be
+  // the case, for example, that the "b" needs to be inverted. We should
+  // consider all permutations.
+
   // returns all elements at the next level with inversions removed
   private def level2(els: Set[Logic]): Set[Logic] = {
     def norm(e: Logic): Logic = e match {
