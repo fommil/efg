@@ -152,14 +152,32 @@ class LogicTest extends Test {
   // private val d = In(3)
 
   // a·(a + b)
-  def testEliminate1: Unit = assertLocalRule(Eliminate, And(a, Or(a, b)))
+  def testEliminate1: Unit = {
+    val logic = And(a, Or(a, b))
+    assertEquals(a, Eliminate.eliminate(logic))
+    assertLocalRule(Eliminate, logic)
+  }
 
   // (a·b + a)
-  def testEliminate2: Unit = assertLocalRule(Eliminate, Or(And(a, b), a))
+  def testEliminate2: Unit = {
+    val logic = Or(And(a, b), a)
+    assertEquals(a, Eliminate.eliminate(logic))
+    assertLocalRule(Eliminate, logic)
+  }
 
   // a.(b + (a + b).(a + c))
-  def testEliminate3: Unit = assertLocalRule(Eliminate,
-    And(a, Or(b, And(Or(a, b), Or(a, c)))))
+  def testEliminate3: Unit = {
+    val logic = And(a, Or(b, And(Or(a, b), Or(a, c))))
+    assertEquals(a, Eliminate.eliminate(logic))
+    assertLocalRule(Eliminate, logic)
+  }
+
+  // (a + b) . (a + c) is untouched (i.e. don't try to UnFactor)
+  def testEliminate4: Unit = {
+    val logic = And(Or(a, b), Or(a, c))
+    assertEquals(logic, Eliminate.eliminate(logic))
+    assertLocalRule(Eliminate, logic)
+  }
 
   // (a + b + c) should not try to nest
   def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))

@@ -119,67 +119,50 @@ object LocalRule {
   // A.(A + B) = A
   // A + (A.B) = A
   //
-  // This removes all branches that would evaluate to true, and must look to the
-  // leaves to do so.
+  // A nested AND inside an AND will not have any of its contents eliminated
+  // (similar for nested OR inside OR), although their contents will be
+  // considered common terms for the branches.
   //
-  // Application on the root does not imply application on individual
-  // sub-branches, it only seeks to remove branches that are redundant with
-  // respect to the current node. There's probably a more efficient recursive
-  // way to do this such that a single application at the root is all that is
-  // needed, but this is nice and simple.
+  // Although this traverses the branches all the way to the leaves, it only
+  // removes branches that are redundant with respect to the current node's
+  // factors.
   object Eliminate extends LocalRule {
     // The core rule logic exposed for other rules to use directly when there is
     // an expected immediate opportunity for elimination.
-    def eliminate(node: Logic): Logic = ???
-
-    // Returns None if the node should be eliminated, otherwise a Some of a
-    // (potentially) reduced tree.
-    private def eliminate_(node: Logic, common_sums: Set[Logic], common_products: Set[Logic]): Option[Logic] = node match {
-      case node: And =>
-        def flatten_factors(outer: And): Set[Logic] = outer.entries.flatMap {
-          case inner: And => flatten_factors(inner)
+    def eliminate(node: Logic): Logic = node match {
+      case And(entries) => // A.(A + B) = A
+        def flatten_factors(es: Set[Logic]): Set[Logic] = es.flatMap {
+          case And(es_) => flatten_factors(es_)
           case e => Set(e)
         }
-        val flattened_factors = flatten_factors(node)
-
-        if (flattened_factors.overlaps(common_sums)) None
-        else {
-          lazy val common_products_ = common_products ++ flatten_factors(node)
-          val entries_ = node.entries.flatMap {
-            case flip: Or => eliminate_(flip, common_sums - flip, common_products_)
-            case e => Some(e)
-          }
-          if (entries_.isEmpty) None else Some(And(entries_))
+        val factors = flatten_factors(entries)
+        val entries_ = entries.map {
+          case e@ Or(es) =>
+            val redundant = (factors - e).map { k => k -> True }.toMap
+            val es_ = es.map { e => e.replace(redundant) }
+            if (es_ == es) e else Or(es_)
+          case e => e
         }
+        if (entries_ == entries) node
+        else And(entries_)
 
-        // FIXME the logic is wrong, because when we notice that one of our OR
-        // elements has something in common with the common set at the current
-        // level, we should just reduce the entire OR.
-      case node: Or =>
-        def flatten_factors(outer: Or): Set[Logic] = outer.entries.flatMap {
-          case inner: Or => flatten_factors(inner)
+      case Or(entries) => // A + (A.B) = A
+        def flatten_factors(es: Set[Logic]): Set[Logic] = es.flatMap {
+          case Or(es_) => flatten_factors(es_)
           case e => Set(e)
         }
-        val flattened_factors = flatten_factors(node)
-
-        // this is where the logic is wrong, it's not that the factors overlap
-        // the common ones, it's that if anything at any level beneath the
-        // current level overlaps then the entire OR should collapse.
-        if (flattened_factors.overlaps(common_products)) None
-        else {
-          lazy val common_sums_ = common_sums ++ flattened_factors
-          val entries_ = node.entries.flatMap {
-            case flip: And => eliminate_(flip, common_sums_ - flip, common_products)
-            case e => Some(e)
-          }
-          if (entries_.size < node.entries.size) None else Some(Or(entries_))
+        val factors = flatten_factors(entries)
+        val entries_ = entries.map {
+          case e@ And(es) =>
+            val redundant = (factors - e).map { k => k -> Inv(True) }.toMap
+            val es_ = es.map { e => e.replace(redundant) }
+            if (es_ == es) e else And(es_)
+          case e => e
         }
+        if (entries_ == entries) node
+        else Or(entries_)
 
-      // case Inv(e) =>
-      //   // flip and invert the factors
-      //   eliminate_(e, common_products.map(Inv(_)), common_sums.map(Inv(_))).map(Inv(_))
-
-      case _ => Some(node)
+      case _ => node
     }
 
     def perform(node: Logic): List[Logic] = {
@@ -291,21 +274,53 @@ object LocalRule {
 }
 
 trait GlobalRule {
-  // like LocalRule, implementations are encouraged to return each possible as
-  // an entry in a list instead of being aggressive.
-  def perform(circuits: Map[String, Logic]): List[Map[String, Logic]]
+  // like LocalRule, implementations are encouraged to return each possible move
+  // as an entry in a list instead of being aggressive and applying everything.
+  def perform(circuits: Set[Logic]): List[Map[Logic, Logic]]
 }
 
 object GlobalRule {
-  // finds all AND/OR gates that have subsets that could be utilised by other
+  // FIXME wire up the global rules
+  // FIXME tests for the global rules
+
+  // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
-  // Each "step" only performs one replacement action on the entire circuit even
-  // if two steps are needed for sharing to occur (e.g. consider two overlapping
-  // OR gates where both need to be unnested).
   object Shared extends GlobalRule {
-    override def perform(circuits: Map[String, Logic]): List[Map[String, Logic]] = {
-      ???
-      // FIXME implement GlobalRule.Shared and wire it up
+    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
+      (ands(circuits) ++ ors(circuits)).map { case (a, b) => Map(a -> b) }
+
+    private def ands(circuits: Set[Logic]): List[(Logic, Logic)] = {
+      val ands = circuits.flatMap { circuit =>
+        circuit.nodes.collect { case e: And => e }
+      }.toList
+      for {
+        left <- ands
+        left_ = left.entries
+        right <- ands
+        right_ = right.entries
+        if left != right
+        subset = left_.intersect(right_)
+        if subset.size > 1 && left_.size > subset.size
+      } yield {
+        (left, new And(left_.diff(subset) + new And(subset)))
+      }
+    }
+
+    private def ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
+      val ors = circuits.flatMap { circuit =>
+        circuit.nodes.collect { case e: Or => e }
+      }.toList
+      for {
+        left <- ors
+        left_ = left.entries
+        right <- ors
+        right_ = right.entries
+        if left != right
+        subset = left_.intersect(right_)
+        if subset.size > 1 && left_.size > subset.size
+      } yield {
+        (left, new Or(left_.diff(subset) + new Or(subset)))
+      }
     }
   }
 }
@@ -523,13 +538,16 @@ sealed trait Logic { self =>
 
   // Replace every node that is equal to the target, recursing into children.
   //
-  // Does not recurse into the replacement Node
+  // Does not recurse into the replacement Node(s).
   final def replace(target: Logic, replacement: Logic): Logic =
-    if (self == target) replacement
-    else {
+    replace(Map(target -> replacement))
+
+  final def replace(lut: Map[Logic, Logic]): Logic = lut.get(self) match {
+    case Some(replacement) => replacement
+    case None =>
       def replace_(entries: Iterable[Logic])(cons: Iterable[Logic] => Logic): Logic = {
         val entries_ = entries.map { e =>
-          val replaced = e.replace(target, replacement)
+          val replaced = e.replace(lut)
           (replaced ne e, replaced)
         }
         if (entries_.exists(_._1)) cons(entries_.map(_._2))
@@ -540,7 +558,7 @@ sealed trait Logic { self =>
         case True => self
 
         case Inv(e) =>
-          val replaced = e.replace(target, replacement)
+          val replaced = e.replace(lut)
           if (replaced ne e) Inv(replaced) else self
 
         case And(entries) =>
@@ -551,7 +569,7 @@ sealed trait Logic { self =>
 
         case _: In => self
       }
-    }
+  }
 
   def nodes: List[Logic] = {
     def nodes_(es: Iterable[Logic]): List[Logic] = es.toList.flatMap(_.nodes)
@@ -736,7 +754,6 @@ object Logic {
     }
   }
 
-  // TODO is auto-deduping nested things stopping us from finding optimal solutions?
   object Or {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
@@ -744,7 +761,7 @@ object Logic {
       var entries_ = entries
 
       def rec(es: Set[Logic], top: Boolean): Unit = es.foreach { e =>
-        if (entries_.contains(Inv(e)))
+        if (entries_.contains(Inv(e)) || (top && e == True))
           entries_ = Set(True)
         else if ((!top && entries_.contains(e)) || (top && e == Inv(True)))
           entries_ = entries_ - e
@@ -764,6 +781,27 @@ object Logic {
 
   object In {
 
+  }
+
+  def fanout(circuits: Set[Logic]): Map[Logic, Int] = {
+    def fanout_seq(acc: Map[Logic, Int], els: Set[Logic]) =
+      els.foldLeft(acc) { case (acc_, e) => fanout_(acc_, e)}
+
+    def fanout_(acc: Map[Logic, Int], c: Logic): Map[Logic, Int] = {
+      val acc_ = acc.incr(c)
+      if (acc.contains(c)) acc_
+      else c match {
+        case True => acc_
+        case In(_)  => acc_
+        case Inv(e)  => fanout_seq(acc_, Set(e))
+        case And(es) => fanout_seq(acc_, es)
+        case Or(es) => fanout_seq(acc_, es)
+      }
+    }
+
+    circuits.foldLeft(Map.empty[Logic, Int]) {
+      case (acc, c) => fanout_(acc, c)
+    }
   }
 }
 
