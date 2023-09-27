@@ -292,7 +292,7 @@ object GlobalRule {
     private def ands(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ands = circuits.flatMap { circuit =>
         circuit.nodes.collect { case e: And => e }
-      }.toList
+      }
       for {
         left <- ands
         left_ = left.entries
@@ -304,12 +304,12 @@ object GlobalRule {
       } yield {
         (left, new And(left_.diff(subset) + new And(subset)))
       }
-    }
+    }.toList
 
     private def ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ors = circuits.flatMap { circuit =>
         circuit.nodes.collect { case e: Or => e }
-      }.toList
+      }
       for {
         left <- ors
         left_ = left.entries
@@ -321,7 +321,7 @@ object GlobalRule {
       } yield {
         (left, new Or(left_.diff(subset) + new Or(subset)))
       }
-    }
+    }.toList
   }
 }
 
@@ -648,6 +648,11 @@ object Main {
       import LocalRule._
       List(Factor, UnNest, Eliminate, DeMorgan, Split).map(new Cached(_, 1024 * 1024))
     }
+    val global_rules = {
+      import GlobalRule._
+      List(Shared)
+    }
+
     val max_steps = 1000
 
     val obj = Objective.DTL_Components(
@@ -688,6 +693,15 @@ object Main {
     while (step < max_steps && surface.nonEmpty) {
       val surface_ = surface
       surface = Set.empty
+
+      def push(entry: Map[String, Logic]): Unit = {
+        if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
+          assert(verify(minsums.input_width, ground_truth, entry))
+          surface += entry
+          all_my_circuits += (entry -> obj.measure(entry))
+        }
+      }
+
       surface_.foreach { last_soln =>
         val nodes = last_soln.values.toList.flatMap(_.nodes).distinct
         local_rules.foreach { rule =>
@@ -697,14 +711,20 @@ object Main {
               val update = last_soln.map {
                 case (name, circuit) => name -> circuit.replace(node, repl)
               }
-              if (!all_my_circuits.contains(update) && !surface.contains(update)) {
-                assert(verify(minsums.input_width, ground_truth, update))
-                surface += update
-                all_my_circuits += (update -> obj.measure(update))
-              }
+              push(update)
             }
           }
         }
+
+        global_rules.foreach { rule =>
+          rule.perform(last_soln.values.toSet).foreach { repl =>
+            val update = last_soln.map {
+              case (name, circuit) => name -> circuit.replace(repl)
+            }
+            push(update)
+          }
+        }
+
       }
       step += 1
     }
