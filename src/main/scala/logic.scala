@@ -101,10 +101,16 @@ object LocalRule {
   object Split extends LocalRule {
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
+        // FIXME when the es themselves can be represented by a dedicated logic
+        // gate, split them into their nested forms. e.g. XOR3 into XOR(XOR). No
+        // need to look for other subsets in these cases because we know they
+        // won't be able to be decomposed anyways.
         (2 to (es.size + 1) / 2).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
-            // TODO cached as* methods would be beneficial (and elsewhere used)...
+            // this finds if the subset is a multi-input gate but it won't find
+            // nested forms of those gates. e.g. XOR3 does not have an XOR2 as a
+            // linear subset. See Nested for that.
             if (n.asNOH.isEmpty && n.asOH.isEmpty && n.asXNOR.isEmpty && n.asXOR.isEmpty) None
             else Some(new Or(es.diff(sub) + n))
           }
@@ -397,14 +403,13 @@ sealed trait Logic { self =>
       }
   }
 
-  def nodes: List[Logic] = {
-    def nodes_(es: Iterable[Logic]): List[Logic] = es.toList.flatMap(_.nodes)
+  lazy val nodes: Set[Logic] = {
     self match {
-      case True => self :: Nil
-      case Inv(a) => self :: a.nodes
-      case And(entries) => self :: nodes_(entries)
-      case Or(entries) => self :: nodes_(entries)
-      case _: In => self :: Nil
+      case True => Set(self)
+      case In(_) => Set(self)
+      case Inv(a) => a.nodes + self
+      case And(es) => es.flatMap(_.nodes) + self
+      case Or(es) => es.flatMap(_.nodes) + self
     }
   }
 
@@ -416,7 +421,7 @@ sealed trait Logic { self =>
   // x ⊕ y = (x' · y) + (x · y')
   //
   // extending to n-arity matches all odd parities.
-  def asXOR: Set[Logic] = this match {
+  lazy val asXOR: Set[Logic] = this match {
     case True => Set.empty
     case In(_) => Set.empty
     case Inv(e) => e.asXNOR
@@ -437,7 +442,7 @@ sealed trait Logic { self =>
   // x ⊙ y = (x · y) + (x' · y')
   //
   // extending to n-arity is everything except odd parities.
-  def asXNOR: Set[Logic] =  this match {
+  lazy val asXNOR: Set[Logic] =  this match {
     case True => Set.empty
     case In(_) => Set.empty
     case Inv(e) => e.asXOR
@@ -455,7 +460,7 @@ sealed trait Logic { self =>
       else Set.empty
   }
 
-  def asOH: Set[Logic] = this match {
+  lazy val asOH: Set[Logic] = this match {
     case True => Set.empty
     case In(_) => Set.empty
     case Inv(e) => e.asNOH
@@ -471,7 +476,7 @@ sealed trait Logic { self =>
       else Set.empty
   }
 
-  def asNOH: Set[Logic] =  this match {
+  lazy val asNOH: Set[Logic] =  this match {
     case True => Set.empty
     case In(_) => Set.empty
     case Inv(e) => e.asOH
@@ -489,10 +494,10 @@ sealed trait Logic { self =>
       else Set.empty
   }
 
-  // TODO using level2 as the only seed is bad because it only considers gates
+  // FIXME using level2 as the only seed is bad because it only considers gates
   // where the uninverted inputs are the dimensions of the gate. But it may be
   // the case, for example, that the "b" needs to be inverted. We should
-  // consider all permutations.
+  // consider all permutations (gate dependent!).
 
   // returns all elements at the next level with inversions removed
   private def level2(els: Set[Logic]): Set[Logic] = {
@@ -708,7 +713,7 @@ object Main {
       }
 
       surface_.foreach { last_soln =>
-        val nodes = last_soln.values.toList.flatMap(_.nodes).distinct
+        val nodes = last_soln.values.flatMap(_.nodes)
         local_rules.foreach { rule =>
           nodes.foreach { node =>
             rule.perform(node).foreach { repl =>
