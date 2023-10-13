@@ -97,23 +97,12 @@ object LocalRule {
   }
 
   // a subset of Nest whereby we detect and split out subsets of nodes that can
-  // be represented by dedicated logic gates.
+  // be represented by dedicated logic gates. Note that this won't split a
+  // multi-arity gate into smaller parts, as that is handled by Global.Shared
   object Split extends LocalRule {
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
-        // FIXME when the es themselves can be represented by a dedicated logic
-        // gate, split them into their nested forms. e.g. XOR3 into XOR(XOR). No
-        // need to look for other subsets in these cases because we know they
-        // won't be able to be decomposed anyways.
-        val split = if (node.asXOR.isEmpty) Nil else {
-          val inputs = node.asXOR
-          // TODO pull out all sizes up to half to allow for different balances
-          inputs.toList.map { i =>
-            Xor(Xor(inputs - i), i)
-          }
-        }
-
-        val decom = (2 to (es.size + 1) / 2).toList.flatMap { i =>
+        (2 to (es.size + 1) / 2).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
             // this finds if the subset is a multi-input gate but it won't find
@@ -123,8 +112,6 @@ object LocalRule {
             else Some(new Or(es.diff(sub) + n))
           }
         }
-
-        split ++ decom
 
       case _ => Nil
     }
@@ -296,14 +283,13 @@ trait GlobalRule {
 }
 
 object GlobalRule {
-  // FIXME wire up the global rules
   // FIXME tests for the global rules
 
   // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
   object Shared extends GlobalRule {
     override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      (ands(circuits) ++ ors(circuits)).map { case (a, b) => Map(a -> b) }
+      (ands(circuits) ++ ors(circuits) ++ xors(circuits)).map { case (a, b) => Map(a -> b) }
 
     private def ands(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ands = circuits.flatMap { circuit =>
@@ -338,6 +324,25 @@ object GlobalRule {
         (left, new Or(left_.diff(subset) + new Or(subset)))
       }
     }.toList
+
+    // these are not caught by the 'ors' rule because of the complex interaction
+    // between the components.
+    private def xors(circuits: Set[Logic]): List[(Logic, Logic)] = {
+      val xors = circuits.filter(_.asXOR.nonEmpty)
+
+      for {
+        left <- xors
+        right <- xors
+        if left != right
+        left_ = left.asXOR
+        right_ = right.asXOR
+        subset = left_.intersect(right_)
+        if subset.size > 1 && left_.size > subset.size
+      } yield {
+        (left, Xor(left_.diff(subset) + Xor(subset)))
+      }
+    }.toList
+
   }
 }
 
@@ -789,8 +794,6 @@ object Main {
 
     // TODO output the DTL circuit in yosys format
     System.out.println(s"IMPL = $impl")
-
-    // FIXME fix the solver until it can be as efficient as the textbook soln
 
     val textbook = {
       import Hardware.DTL._
