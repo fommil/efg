@@ -179,26 +179,32 @@ class LogicTest extends Test {
     assertLocalRule(Eliminate, logic)
   }
 
+  // (a·b)'·((a·b') + (a'·b))' + (a.b') + (a'.b)
+  // checks to make sure that (false + false)' evaluates to true
+  def testEliminate5: Unit = {
+    val logic = Or(
+      And(
+        Inv(And(a, b)),
+        Inv(Or(And(a, Inv(b)), And(Inv(a), b)))
+      ),
+      And(a, Inv(b)),
+      And(Inv(a), b)
+    )
+
+    assertLocalRule(Eliminate, logic)
+  }
+
   // (a + b + c) should not try to nest
   def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))
 
-  // FIXME maybe this isn't Splittable after all... and needs a separate rule
-  //
-  // (a . b' . c') + (a' . b . c') + (a' . b' . c) + (a . b . c)
-  // XOR3 should be split into nested XOR2
+  // a + b = a.b' + a'.b + a.b
   def testSplit1: Unit = {
-    val node3 = Or(
-      And(Inv(In(0)), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), Inv(In(2))),
-      And(In(0), In(1), In(2)),
-    )
-
-    System.out.println(Split.perform(node3))
-
-
-    assertLocalRule(Split, node3)
+    val or = Or(a, b)
+    val xor = Or(Xor(a, b), And(a, b))
+    assertEquals(List(xor), Split.perform(or))
+    assertLocalRule(Split, or)
   }
+
 }
 
 // Local Variables:

@@ -100,16 +100,38 @@ object LocalRule {
   // be represented by dedicated logic gates. Note that this won't split a
   // multi-arity gate into smaller parts, as that is handled by Global.Shared
   object Split extends LocalRule {
+    private def isGate(n: Logic): Boolean = n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
+
     override def perform(node: Logic): List[Logic] = node match {
+      case Or(es) if es.size == 2 & node.asXOR.isEmpty =>
+        // allows XOR subgates to be extracted from plain OR gates
+        //
+        // a + b = a.b' + a'.b + a.b
+        //
+        // in the hope that a common factor will eliminate the a.b.
+        //
+        // It might make sense to only perform this rule if we can detect that
+        // the XOR component can be reused by Global.Shared, to avoid needlessly
+        // expanding the search space.
+        //
+        // (is it worth doing this for higher arity?)
+        val a = es.head
+        val b = es.tail.head
+        Or(Or(And(a, Inv(b)), And(Inv(a), b)), And(a, b)) :: Nil
+
       case Or(es) if es.size > 2 =>
         (2 to (es.size + 1) / 2).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
-            // this finds if the subset is a multi-input gate but it won't find
-            // nested forms of those gates. e.g. XOR3 does not have an XOR2 as a
-            // linear subset. See Nested for that.
-            if (n.asNOH.isEmpty && n.asOH.isEmpty && n.asXNOR.isEmpty && n.asXOR.isEmpty) None
-            else Some(new Or(es.diff(sub) + n))
+            if (isGate(n)) Some(new Or(es.diff(sub) + n)) else None
+          }
+        }
+
+      case And(es) if es.size > 2 =>
+        (2 to (es.size + 1) / 2).toList.flatMap { i =>
+          es.subsets(i).flatMap { sub =>
+            val n = new And(sub)
+            if (isGate(n)) Some(new And(es.diff(sub) + n)) else None
           }
         }
 
@@ -262,6 +284,8 @@ object LocalRule {
         res
       }
     }
+
+    override def toString = underlying.toString
   }
 
   // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
@@ -329,6 +353,10 @@ object GlobalRule {
     // between the components.
     private def xors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val xors = circuits.filter(_.asXOR.nonEmpty)
+
+      // if (xors.nonEmpty) {
+      //   System.out.println(s"SHARED XORS $xors")
+      // }
 
       for {
         left <- xors
@@ -614,8 +642,8 @@ object Logic {
       def rec(es: Set[Logic], top: Boolean): Unit = es.foreach { e =>
         if (entries_.contains(Inv(e)) || (top && e == True))
           entries_ = Set(True)
-        else if ((!top && entries_.contains(e)) || (top && e == Inv(True)))
-          entries_ = entries_ - e
+        else if ((!top && entries_.contains(e)) || (top && e == Inv(True) && entries.size > 1))
+          entries_ = entries_ - e // only remove FALSE if we have something that can be TRUE
 
         e match {
           case Or(nested) => rec(nested, false)
@@ -722,7 +750,7 @@ object Main {
 
     val ground_truth = all_my_circuits.head._1
     all_my_circuits.tail.foreach {
-      case (needle, _) => assert(verify(minsums.input_width, ground_truth, needle))
+      case (needle, _) => verify(minsums.input_width, ground_truth, needle, None, "sop")
     }
 
     // TODO calculate the alternative msop using 2-bit input decoders which
@@ -747,9 +775,9 @@ object Main {
       val surface_ = surface
       surface = Set.empty
 
-      def push(entry: Map[String, Logic]): Unit = {
+      def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
         if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
-          assert(verify(minsums.input_width, ground_truth, entry))
+          verify(minsums.input_width, ground_truth, entry, Some(prev), desc)
           surface += entry
           all_my_circuits += (entry -> obj.measure(entry))
         }
@@ -764,7 +792,7 @@ object Main {
               val update = last_soln.map {
                 case (name, circuit) => name -> circuit.replace(node, repl)
               }
-              push(update)
+              push(update, last_soln, s"[$rule on $node]")
             }
           }
         }
@@ -774,7 +802,7 @@ object Main {
             val update = last_soln.map {
               case (name, circuit) => name -> circuit.replace(repl)
             }
-            push(update)
+            push(update, last_soln, rule.toString)
           }
         }
 
@@ -795,6 +823,12 @@ object Main {
     // TODO output the DTL circuit in yosys format
     System.out.println(s"IMPL = $impl")
 
+    // FIXME match the efficiency of the textbook solution
+
+    // FIXME why are we getting into this situation?
+    // (i0·i1) + (i0·i2) + (i1·i2) != ((i1'·i0) + (i1·i0'))' + (i0·i2) + (i1·i2) in Co
+    // (((i0·i1)'·((i0·i1') + (i0'·i1))') + ((i1'·i0) + (i1·i0')))' + (i0·i2) + (i1·i2)
+
     val textbook = {
       import Hardware.DTL._
 
@@ -807,22 +841,27 @@ object Main {
 
       Map("S" -> S, "Co" -> Co)
     }
-    System.out.println(textbook)
+    System.out.println(s"textbook impl = $textbook")
     val fanout_textbook = Hardware.DTL.fanout(textbook.values.toSet)
-    System.out.println(s"text cost = ${obj.measureFanout(fanout_textbook)}")
+    System.out.println(s"textbook cost = ${obj.measureFanout(fanout_textbook)}")
 
   }
 
-  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Boolean = {
+  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic], prev: Option[Map[String, Logic]], debug: String): Unit = {
     (0 until (1 << input_width)).foreach { i =>
       val in = BitSet.fromBitMask(Array(i))
       for {
         channel <- orig.keys
       } {
-        if (orig(channel).eval(in) != update(channel).eval(in)) return false
+        if (orig(channel).eval(in) != update(channel).eval(in)) {
+          val extra = prev match {
+            case None => ""
+            case Some(prev_) => s" (previously ${prev_(channel)})"
+          }
+          throw new AssertionError(s"verification failure $debug ${orig(channel)} != ${update(channel)} in $channel$extra")
+        }
       }
     }
-    true
   }
 
 }

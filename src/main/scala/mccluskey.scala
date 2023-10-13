@@ -182,6 +182,7 @@ object McCluskey {
     minsums: Set[Set[Cube]],
     out_names: IndexedSeq[String]
   ): List[Map[String, Set[Cube]]] = {
+    val out_names_ = out_names.reverse // right most is 0
     minsums.toList.map { soln =>
       if (out_names.length == 1)
         Map(out_names(0) -> soln)
@@ -191,7 +192,7 @@ object McCluskey {
             if (mask.pterm(input_width + o)) Some(mask.take(input_width))
             else None
           }
-          out_names(o) -> channel
+          out_names_(o) -> channel
         }.to(TreeMap)
       }
     }
