@@ -76,8 +76,8 @@ object LocalRule {
   // This is too inefficient, so has been disabled, but the code remains for
   // reference. We hand-code for the known situations that it would have
   // detected such as maximising AND/OR or splitting something off that can be
-  // represented as XOR/OH (c.f. Split). But obviously that doesn't catch
-  // everything.
+  // represented as XOR/OH (c.f. Split) or where part of the expression could be
+  // factored (c.f. NestForFactor). But obviously that doesn't catch everything.
   object Nest extends LocalRule {
     def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
@@ -96,6 +96,32 @@ object LocalRule {
     }
   }
 
+  // allows cases like a.b + a.c + b.c to be split up so that they can be
+  // factored in a subsequent pass.
+  //
+  // FIXME this is very inefficient, maybe best to just do this under a single
+  // Factor call.
+  object NestForFactor extends LocalRule {
+    override def perform(node: Logic): List[Logic] = node match {
+      case Or(entries) if entries.size > 2 =>
+        def part(factor: Logic) = entries.partition {
+          case e @ And(es) => es.contains(factor) || e == factor
+          case e => e == factor
+        }
+
+        entries.flatMap {
+          case And(es) => es.map(part(_))
+          case f => List(part(f))
+        }.flatMap {
+          case (common, uncommon) =>
+            if (uncommon.nonEmpty && common.size > 1) List(new Or(uncommon + new Or(common)))
+            else Nil
+        }.toList
+
+      case _ => Nil
+    }
+  }
+
   // a subset of Nest whereby we detect and split out subsets of nodes that can
   // be represented by dedicated logic gates. Note that this won't split a
   // multi-arity gate into smaller parts, as that is handled by Global.Shared
@@ -103,22 +129,6 @@ object LocalRule {
     private def isGate(n: Logic): Boolean = n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
 
     override def perform(node: Logic): List[Logic] = node match {
-      case Or(es) if es.size == 2 & node.asXOR.isEmpty =>
-        // allows XOR subgates to be extracted from plain OR gates
-        //
-        // a + b = a.b' + a'.b + a.b
-        //
-        // in the hope that a common factor will eliminate the a.b.
-        //
-        // It might make sense to only perform this rule if we can detect that
-        // the XOR component can be reused by Global.Shared, to avoid needlessly
-        // expanding the search space.
-        //
-        // (is it worth doing this for higher arity?)
-        val a = es.head
-        val b = es.tail.head
-        Or(Or(And(a, Inv(b)), And(Inv(a), b)), And(a, b)) :: Nil
-
       case Or(es) if es.size > 2 =>
         (2 to (es.size + 1) / 2).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
@@ -210,6 +220,10 @@ object LocalRule {
           case nested: Or => rec(nested)
           case e => List(e)
         }
+        // this might be more efficiently implemented by doing the elimination
+        // directly instead of calling out to Eliminate since we know exactly
+        // what we want to set to True. Also, we can do the partial factors that
+        // way too.
         entries.flatMap {
           case nested: Or => rec(nested)
           case _ => Nil
@@ -313,7 +327,7 @@ object GlobalRule {
   // overlapping parts of the circuit, and splits them out as nested entries.
   object Shared extends GlobalRule {
     override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      (ands(circuits) ++ ors(circuits) ++ xors(circuits)).map { case (a, b) => Map(a -> b) }
+      (ands(circuits) ++ ors(circuits) ++ xors(circuits) ++ xors_ors(circuits)).map { case (a, b) => Map(a -> b) }
 
     private def ands(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ands = circuits.flatMap { circuit =>
@@ -352,11 +366,9 @@ object GlobalRule {
     // these are not caught by the 'ors' rule because of the complex interaction
     // between the components.
     private def xors(circuits: Set[Logic]): List[(Logic, Logic)] = {
-      val xors = circuits.filter(_.asXOR.nonEmpty)
-
-      // if (xors.nonEmpty) {
-      //   System.out.println(s"SHARED XORS $xors")
-      // }
+      val xors = circuits.flatMap { circuit =>
+        circuit.nodes.filter(_.asXOR.nonEmpty)
+      }
 
       for {
         left <- xors
@@ -368,6 +380,36 @@ object GlobalRule {
         if subset.size > 1 && left_.size > subset.size
       } yield {
         (left, Xor(left_.diff(subset) + Xor(subset)))
+      }
+    }.toList
+
+    // this detects when an OR can be expanded because it would allow its
+    // XOR component to be shared.
+    //
+    // a + b = a.b' + a'.b + a.b
+    //
+    // TODO higher arity
+    // FIXME this never seems to trigger
+    private def xors_ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
+      val ors = circuits.flatMap { circuit =>
+        circuit.nodes.collect { case e: Or if e.asXOR.isEmpty => e }
+      }
+      val xors = circuits.flatMap { circuit =>
+        circuit.nodes.collect { case e: Or if e.asXOR.nonEmpty => e }
+      }
+      for {
+        left <- ors
+        right <- xors
+        left_ = left.entries
+        right_ = right.asXOR
+        subset = left_.intersect(right_)
+        if subset.size == 2
+      } yield {
+        val a = subset.head
+        val b = subset.tail.head
+        System.out.println(s"DEBUG XORS_ORS $a $b")
+
+        (left, new Or(left_.diff(subset) + Xor(a, b) + And(a, b)))
       }
     }.toList
 
@@ -727,7 +769,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split, NestForFactor).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._

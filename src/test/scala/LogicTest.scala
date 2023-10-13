@@ -137,6 +137,7 @@ class LogicTest extends Test {
 
   def testUnNest: Unit = propLocalRule(UnNest)
   // def testNest: Unit = propLocalRule(Nest)
+  def testNestForFactor: Unit = propLocalRule(NestForFactor)
   def testSplit: Unit = propLocalRule(Split)
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
@@ -150,6 +151,22 @@ class LogicTest extends Test {
   private val b = In(1)
   private val c = In(2)
   // private val d = In(3)
+
+  // a.b + a.c + b.c
+  def testNestForFactor1: Unit = {
+    val logic = Or(And(a, b), And(a, c), And(b, c))
+
+    assertEquals(
+      Set(
+        Or(Or(And(a, c), And(b, c)), And(a, b)),
+        Or(Or(And(a, b), And(a, c)), And(b, c)),
+        Or(Or(And(a, b), And(b, c)), And(a, c)),
+      ),
+      NestForFactor.perform(logic).toSet
+    )
+
+    assertLocalRule(NestForFactor, logic)
+  }
 
   // a·(a + b)
   def testEliminate1: Unit = {

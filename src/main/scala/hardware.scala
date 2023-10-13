@@ -22,8 +22,8 @@ object Hardware {
   sealed trait DTL
   object DTL {
     case class REF(channel: Int)      extends DTL
-    case class AND(entries: Set[DTL]) extends DTL
-    case class OR (entries: Set[DTL]) extends DTL
+    case class AND(entries: Set[DTL]) extends DTL { override def toString = s"""AND(${entries.mkString(", ")})"""}
+    case class OR (entries: Set[DTL]) extends DTL { override def toString = s"""OR(${entries.mkString(", ")})"""}
     case class NOT(entry: DTL)        extends DTL
 
     // amplifier(s) to address fan-out constraints. Number required depends on
@@ -52,8 +52,8 @@ object Hardware {
     //
     // TODO find an efficent way to implement multi-input XOR/XNOR otherwise,
     // this should be viewed as nested XOR2 / XNOR2 at the hardware.
-    case class XOR(a: Set[DTL])     extends DTL // ⊕
-    case class XNOR(a: Set[DTL])    extends DTL // ⊙
+    case class XOR(entries: Set[DTL]) extends DTL  { override def toString = s"""XOR(${entries.mkString(", ")})"""}
+    case class XNOR(entries: Set[DTL]) extends DTL // ⊙
 
     // TODO eval to verify that the desired Logic is retained
 
