@@ -105,7 +105,15 @@ object LocalRule {
         // gate, split them into their nested forms. e.g. XOR3 into XOR(XOR). No
         // need to look for other subsets in these cases because we know they
         // won't be able to be decomposed anyways.
-        (2 to (es.size + 1) / 2).toList.flatMap { i =>
+        val split = if (node.asXOR.isEmpty) Nil else {
+          val inputs = node.asXOR
+          // TODO pull out all sizes up to half to allow for different balances
+          inputs.toList.map { i =>
+            Xor(Xor(inputs - i), i)
+          }
+        }
+
+        val decom = (2 to (es.size + 1) / 2).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
             // this finds if the subset is a multi-input gate but it won't find
@@ -115,6 +123,8 @@ object LocalRule {
             else Some(new Or(es.diff(sub) + n))
           }
         }
+
+        split ++ decom
 
       case _ => Nil
     }
@@ -612,6 +622,34 @@ object Logic {
       if (entries_.isEmpty) True
       else if (entries_.size == 1) entries_.head
       else new Or(entries_)
+    }
+  }
+
+  // a constructor around Or
+  object Xor {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
+
+    def apply(entries: Set[Logic]): Logic = {
+      // TODO support all arities
+      if (entries.size == 2) {
+        val i0 = entries.head
+        val i1 = entries.tail.head
+        Or(
+          And(Inv(i0), i1), // x' y
+          And(i0, Inv(i1)), // x  y'
+        )
+      } else if (entries.size == 3) {
+        val i0 = entries.head
+        val i1 = entries.tail.head
+        val i2 = entries.tail.tail.head
+        Or(
+          And(Inv(i0), Inv(i1), i2), // x' y' z
+          And(Inv(i0), i1, Inv(i2)), // x' y  z'
+          And(i0, Inv(i1), Inv(i2)), // x  y' z'
+          And(i0, i1, i2),           // x  y  z
+        )
+      } else ???
     }
   }
 
