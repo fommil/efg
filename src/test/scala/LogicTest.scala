@@ -137,11 +137,11 @@ class LogicTest extends Test {
 
   def testUnNest: Unit = propLocalRule(UnNest)
   // def testNest: Unit = propLocalRule(Nest)
-  def testNestForFactor: Unit = propLocalRule(NestForFactor)
   def testSplit: Unit = propLocalRule(Split)
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
+  def testXclude: Unit = propLocalRule(Xclude)
 
   // any property test that fails, no matter how simple, should be documented
   // below as a standalone test, committed along with the fix.
@@ -151,22 +151,6 @@ class LogicTest extends Test {
   private val b = In(1)
   private val c = In(2)
   // private val d = In(3)
-
-  // a.b + a.c + b.c
-  def testNestForFactor1: Unit = {
-    val logic = Or(And(a, b), And(a, c), And(b, c))
-
-    assertEquals(
-      Set(
-        Or(Or(And(a, c), And(b, c)), And(a, b)),
-        Or(Or(And(a, b), And(a, c)), And(b, c)),
-        Or(Or(And(a, b), And(b, c)), And(a, c)),
-      ),
-      NestForFactor.perform(logic).toSet
-    )
-
-    assertLocalRule(NestForFactor, logic)
-  }
 
   // a·(a + b)
   def testEliminate1: Unit = {
@@ -215,11 +199,34 @@ class LogicTest extends Test {
   def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))
 
   // a + b = a.b' + a'.b + a.b
-  def testSplit1: Unit = {
+  def testXclude1: Unit = {
     val or = Or(a, b)
     val xor = Or(Xor(a, b), And(a, b))
-    assertEquals(List(xor), Split.perform(or))
-    assertLocalRule(Split, or)
+    assertEquals(List(xor), Xclude.perform(or))
+    assertLocalRule(Xclude, or)
+  }
+
+  // a.b + a.c + b.c should find partial factors
+  def testFactor1: Unit = {
+    val logic = Or(And(a, b), And(a, c), And(b, c))
+
+    assertEquals(
+      Set(
+        Or(And(a, Or(b, c)), And(b, c)),
+        Or(And(b, Or(a, c)), And(a, c)),
+        Or(And(c, Or(a, b)), And(a, b))
+      ),
+      Factor.perform(logic).toSet
+    )
+
+    assertLocalRule(Factor, logic)
+  }
+
+  // b + (a.b')
+  def testFactor2: Unit = {
+    val logic = Or(b, And(a, Inv(b)))
+
+    assertLocalRule(Factor, logic)
   }
 
 }

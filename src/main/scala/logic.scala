@@ -76,8 +76,8 @@ object LocalRule {
   // This is too inefficient, so has been disabled, but the code remains for
   // reference. We hand-code for the known situations that it would have
   // detected such as maximising AND/OR or splitting something off that can be
-  // represented as XOR/OH (c.f. Split) or where part of the expression could be
-  // factored (c.f. NestForFactor). But obviously that doesn't catch everything.
+  // represented as XOR/OH (c.f. Split). But obviously that doesn't catch
+  // everything.
   object Nest extends LocalRule {
     def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
@@ -96,35 +96,15 @@ object LocalRule {
     }
   }
 
-  // allows cases like a.b + a.c + b.c to be split up so that they can be
-  // factored in a subsequent pass.
-  //
-  // FIXME this is very inefficient, maybe best to just do this under a single
-  // Factor call.
-  object NestForFactor extends LocalRule {
-    override def perform(node: Logic): List[Logic] = node match {
-      case Or(entries) if entries.size > 2 =>
-        def part(factor: Logic) = entries.partition {
-          case e @ And(es) => es.contains(factor) || e == factor
-          case e => e == factor
-        }
-
-        entries.flatMap {
-          case And(es) => es.map(part(_))
-          case f => List(part(f))
-        }.flatMap {
-          case (common, uncommon) =>
-            if (uncommon.nonEmpty && common.size > 1) List(new Or(uncommon + new Or(common)))
-            else Nil
-        }.toList
-
-      case _ => Nil
-    }
-  }
-
   // a subset of Nest whereby we detect and split out subsets of nodes that can
   // be represented by dedicated logic gates. Note that this won't split a
   // multi-arity gate into smaller parts, as that is handled by Global.Shared
+  //
+  // This won't discover subsets if they require a common factor, e.g.
+  //
+  // a.b + a.c + b.c = a.b + c.(a'.b + a.b')
+  //
+  // where the XOR(a, b) is only visible if the common factor c is extracted.
   object Split extends LocalRule {
     private def isGate(n: Logic): Boolean = n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
 
@@ -147,6 +127,22 @@ object LocalRule {
 
       case _ => Nil
     }
+  }
+
+  // expands OR into XOR/OH plus the inclusive parts.
+  //
+  // a + b = a.b' + a'.b + a.b
+  //
+  // TODO higher arity
+  object Xclude extends LocalRule {
+    override def perform(node: Logic): List[Logic] = node match {
+      case Or(es) if es.size == 2 =>
+        val a = es.head
+        val b = es.tail.head
+        List(Or(Xor(a, b), And(a, b)))
+      case _ => Nil
+    }
+
   }
 
   // Eliminate by absorption
@@ -212,10 +208,18 @@ object LocalRule {
   //   (A + B)(A + C) = A + (B.C)
   //   (A.B) + (A.C) = A.(B + C)
   //
-  // considers all possible factors for an expression.
+  // considers all possible factors for an expression including factors that
+  // only factor part of the expression, e.g.
+  //
+  // a.b + b.c + a.c = a.(b + c) + b.c
+  //                 = b.(a + c) + a.c
+  //                 = c.(a + b) + a.b
+  //
+  // Does not recurse into nested gates to find candidates.
   object Factor extends LocalRule {
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
+        // FIXME rewrite to consider partial factors and eliminate directly
         def rec(or: Or): List[Logic] = or.entries.toList.flatMap {
           case nested: Or => rec(nested)
           case e => List(e)
@@ -236,20 +240,32 @@ object LocalRule {
           }
 
       case Or(entries) =>
-        def rec(and: And): List[Logic] = and.entries.toList.flatMap {
-          case nested: And => rec(nested)
-          case e => List(e)
+        // we could be more aggressive and look deeper...
+        val candidates = entries.flatMap {
+          case and: And => and.entries + and
+          case other => Set(other)
         }
-        entries.flatMap {
-          case nested: And => rec(nested)
-          case _ => Nil
-        }.counts
-          .toList
-          .flatMap {
-            case (factor, c) =>
-              if (c < 2) None
-              else Some(Eliminate.eliminate(Or(entries + factor)))
+
+        candidates.flatMap { factor =>
+          val (uncommon, common) =  entries.partitionMap { entry =>
+            if (entry == factor) Right(True)
+            else {
+              // FIXME I think we need to consider True and False here...
+              val replaced = entry.replace(factor, True)
+              if (replaced == entry) Left(entry) else Right(replaced)
+            }
           }
+
+          if (common.isEmpty) None
+          else {
+            val alt = Or(uncommon + And(factor, Or(common)))
+            if (alt == node) None
+            else {
+              // System.out.println(s"DEBUG $factor reduces [$node] to [$alt] ($uncommon, $common)")
+              Some(alt)
+            }
+          }
+        }.toList
 
       case _ => Nil
     }
@@ -769,7 +785,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split, NestForFactor).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split, Xclude).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._
@@ -866,6 +882,11 @@ object Main {
     System.out.println(s"IMPL = $impl")
 
     // FIXME match the efficiency of the textbook solution
+
+    // the most tricky part of finding the optimal ADDER implementation is
+    // discovering this rule, through a combination of more primitive rules:
+    //
+    // a.b + a.c + b.c = a.b + c.(a'.b + a.b')
 
     // FIXME why are we getting into this situation?
     // (i0·i1) + (i0·i2) + (i1·i2) != ((i1'·i0) + (i1·i0'))' + (i0·i2) + (i1·i2) in Co
