@@ -47,12 +47,16 @@ trait LocalRule {
   // it cannot be done from multiple indepentent calls) but may transform
   // multi-level structures.
   def perform(node: Logic): List[Logic]
+
+  def name: String
 }
 object LocalRule {
   // unnest nodes of the same type
   //   A.(A.B.C) => A.B.C
   //   (A + B) + (A + C + D) = A + B + C + D
   object UnNest extends LocalRule {
+    override def name: String = "unnest"
+
     override def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
         val (nested, other) = entries.partitionMap {
@@ -80,6 +84,8 @@ object LocalRule {
   // represented as XOR/OH (c.f. Split). But obviously that doesn't catch
   // everything.
   object Nest extends LocalRule {
+    override def name: String = "nest"
+
     def subsets(entries: Set[Logic]): List[(Set[Logic], Set[Logic])] =
       (2 to (entries.size + 1) / 2).toList.flatMap { i =>
         entries.subsets(i).map { left => (left, entries.diff(left)) }
@@ -107,6 +113,8 @@ object LocalRule {
   //
   // where the XOR(a, b) is only visible if the common factor c is extracted.
   object Split extends LocalRule {
+    override def name: String = "split"
+
     private def isGate(n: Logic): Boolean = n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
 
     override def perform(node: Logic): List[Logic] = node match {
@@ -130,23 +138,6 @@ object LocalRule {
     }
   }
 
-  // expands OR into XOR/OH plus the inclusive parts.
-  //
-  // a + b = a.b' + a'.b + a.b
-  //
-  // TODO higher arity
-  //
-  // TODO this rule might be redundant
-  object Xclude extends LocalRule {
-    override def perform(node: Logic): List[Logic] = node match {
-      case Or(es) if es.size == 2 =>
-        val a = es.head
-        val b = es.tail.head
-        List(Or(Xor(a, b), And(a, b)))
-      case _ => Nil
-    }
-  }
-
   // Eliminate by absorption
   //
   // A.(A + B) = A
@@ -160,6 +151,8 @@ object LocalRule {
   // removes branches that are redundant with respect to the current node's
   // factors.
   object Eliminate extends LocalRule {
+    override def name: String = "eliminate"
+
     // The core rule logic exposed for other rules to use directly when there is
     // an expected immediate opportunity for elimination.
     def eliminate(node: Logic): Logic = node match {
@@ -219,6 +212,8 @@ object LocalRule {
   //
   // Does not recurse into nested gates to find candidates.
   object Factor extends LocalRule {
+    override def name: String = "factor"
+
     private def scope(@unused max: Int) = 2 // math.max(2, max - 1)
 
     def perform(node: Logic): List[Logic] = node match {
@@ -273,6 +268,8 @@ object LocalRule {
   // costly to search. Simple triggers such as counts of inverted contents don't
   // tend to reach the optimal circuits.
   object DeMorgan extends LocalRule {
+    override def name: String = "demorgan"
+
     def perform(node: Logic): List[Logic] = {
       val node_ = perform_(node)
       if (node_ == node) Nil else List(node_)
@@ -297,6 +294,8 @@ object LocalRule {
   }
 
   class Cached(underlying: LocalRule, limit: Int) extends LocalRule {
+    override def name: String = underlying.name
+
     private[this] val cache = new LRA[Logic, List[Logic]](limit)
     final def perform(node: Logic): List[Logic] = {
       val cached = cache.synchronized { cache.get(node) }
@@ -307,8 +306,6 @@ object LocalRule {
         res
       }
     }
-
-    override def toString = underlying.toString
   }
 
   // TODO use simulated annealing to build a transduction database. A way to
@@ -323,6 +320,8 @@ trait GlobalRule {
   // like LocalRule, implementations are encouraged to return each possible move
   // as an entry in a list instead of being aggressive and applying everything.
   def perform(circuits: Set[Logic]): List[Map[Logic, Logic]]
+
+  def name: String
 }
 
 object GlobalRule {
@@ -331,6 +330,9 @@ object GlobalRule {
   // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
   object Shared extends GlobalRule {
+    override def name: String = "shared"
+
+    // TODO split out as separate rules
     override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
       (ands(circuits) ++ ors(circuits) ++ xors(circuits) ++ xors_ors(circuits)).map { case (a, b) => Map(a -> b) }
 
@@ -788,25 +790,37 @@ object Main {
       diode = 0.75
     )
 
+    type Circuit = Map[String, Logic]
+
     // Tracks which circuits have been fully explored to avoid repeating work.
     // We might want to limit since it is a designed-in leak.
-    var all_my_circuits = minsums.asLogic.map { soln => soln -> obj.measure(soln) }.toMap
-    // TODO add variants with truth table inverted for outputs with more than half true
+    //
+    // the list of rules and intermediate solutions is recorded to aid auditing.
+    var all_my_circuits = minsums.asLogic.map { soln => soln -> List.empty[(Circuit, String)] }.toMap
+
+    def audit(circuit: Circuit): Unit = {
+      val history = (circuit -> "final") :: all_my_circuits(circuit)
+      val history_ = history.map {
+        case (c, desc) => (c, desc, obj.measure(c))
+      }
+
+      System.out.println(history_.reverse.mkString("\n"))
+    }
 
     val ground_truth = all_my_circuits.head._1
     all_my_circuits.tail.foreach {
-      case (needle, _) => verify(minsums.input_width, ground_truth, needle, None, "sop")
+      case (needle, _) => verify(minsums.input_width, ground_truth, needle)
     }
+
+    // TODO add variants with truth table inverted for outputs with more than half true
 
     // TODO calculate the alternative msop using 2-bit input decoders which
     //      doubles the size of the inputs but typically reduces the size of the
     //      sop network (~25% according to the literature).
 
-    System.out.println("baseline = " + all_my_circuits.minBy(_._2))
+    // System.out.println("baseline = " + all_my_circuits.minBy(_._2))
 
     var step = 0
-
-    // FIXME add auditing so we can see what's going wrong when it runs away
 
     // TODO parallelise
 
@@ -821,20 +835,28 @@ object Main {
     // multi-step changes that only produce an improvement in the objective
     // function when all are applied, but individually increase costs.
 
-    var surface = all_my_circuits.keySet
+    var surface = all_my_circuits
     while (step < max_steps && all_my_circuits.size < max_explored && surface.nonEmpty) {
       val surface_ = surface
-      surface = Set.empty
+      surface = Map.empty
 
       def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
         if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
-          verify(minsums.input_width, ground_truth, entry, Some(prev), desc)
-          surface += entry
-          all_my_circuits += (entry -> obj.measure(entry))
+          verify(minsums.input_width, ground_truth, entry)
+          val trail = (prev, desc) :: all_my_circuits(prev)
+
+          // TODO reject from surface if the cost has increased for X rule applications
+
+          surface += (entry -> trail)
+          all_my_circuits += (entry -> trail)
+          // if (trail.size > 6) {
+          //   audit(entry)
+          //   sys.exit(1)
+          // }
         }
       }
 
-      surface_.foreach { last_soln =>
+      surface_.foreach { case (last_soln, _) =>
         val nodes = last_soln.values.flatMap(_.nodes)
         local_rules.foreach { rule =>
           nodes.foreach { node =>
@@ -843,7 +865,7 @@ object Main {
               val update = last_soln.map {
                 case (name, circuit) => name -> circuit.replace(node, repl)
               }
-              push(update, last_soln, s"[$rule on $node]")
+              push(update, last_soln, rule.name)
             }
           }
         }
@@ -853,7 +875,7 @@ object Main {
             val update = last_soln.map {
               case (name, circuit) => name -> circuit.replace(repl)
             }
-            push(update, last_soln, rule.toString)
+            push(update, last_soln, rule.name)
           }
         }
 
@@ -862,7 +884,9 @@ object Main {
       System.out.println(s"STEP=$step EXPLORED=${all_my_circuits.size}")
     }
 
-    val soln = all_my_circuits.minBy(_._2)
+    val soln = all_my_circuits.map {
+      case (circuit, _) => circuit -> obj.measure(circuit)
+    }.minBy(_._2)
     val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
     val shared = Hardware.DTL.fanout(impl.values.toSet).filter {
       case (Hardware.DTL.REF(_), _) => false
@@ -871,6 +895,7 @@ object Main {
 
     System.out.println(s"optimised = $soln")
     System.out.println(s"SHARED = $shared ")
+    System.out.println(s"""TRAIL = ${audit(soln._1)}""")
 
     // TODO output the DTL circuit in yosys format
     System.out.println(s"IMPL = $impl")
@@ -900,18 +925,14 @@ object Main {
 
   }
 
-  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic], prev: Option[Map[String, Logic]], debug: String): Unit = {
+  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Unit = {
     (0 until (1 << input_width)).foreach { i =>
       val in = BitSet.fromBitMask(Array(i))
       for {
         channel <- orig.keys
       } {
         if (orig(channel).eval(in) != update(channel).eval(in)) {
-          val extra = prev match {
-            case None => ""
-            case Some(prev_) => s" (previously ${prev_(channel)})"
-          }
-          throw new AssertionError(s"verification failure $debug ${orig(channel)} != ${update(channel)} in $channel$extra")
+          throw new AssertionError(s"verification failure ${orig(channel)} != ${update(channel)} in $channel")
         }
       }
     }
