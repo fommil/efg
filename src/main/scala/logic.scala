@@ -799,6 +799,7 @@ object Main {
     }
 
     val ground_truth = all_my_circuits.head._1
+    val baseline = all_my_circuits.map(_._2._1).min
     all_my_circuits.tail.foreach {
       case (needle, _) => verify(minsums.input_width, ground_truth, needle)
     }
@@ -827,7 +828,7 @@ object Main {
 
           // only add to the surface if we are making progress...
           val progress = trail._2.map(_._3)
-          if (progress.size < 4 || progress(0) <= progress(3)) {
+          if (cost < 2 * baseline && (progress.size < 4 || progress(0) <= progress(3))) {
             surface += (entry -> trail)
           }
         }
