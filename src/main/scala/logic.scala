@@ -796,15 +796,12 @@ object Main {
     // We might want to limit since it is a designed-in leak.
     //
     // the list of rules and intermediate solutions is recorded to aid auditing.
-    var all_my_circuits = minsums.asLogic.map { soln => soln -> List.empty[(Circuit, String)] }.toMap
+    var all_my_circuits = minsums.asLogic.map { soln => soln -> (obj.measure(soln), List.empty[(Circuit, String, Double)]) }.toMap
 
     def audit(circuit: Circuit): Unit = {
-      val history = (circuit -> "final") :: all_my_circuits(circuit)
-      val history_ = history.map {
-        case (c, desc) => (c, desc, obj.measure(c))
-      }
-
-      System.out.println(history_.reverse.mkString("\n"))
+      val history = all_my_circuits(circuit)
+      val complete = (circuit, "final", history._1) :: history._2
+      System.out.println(complete.reverse.mkString("\n"))
     }
 
     val ground_truth = all_my_circuits.head._1
@@ -843,16 +840,16 @@ object Main {
       def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
         if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
           verify(minsums.input_width, ground_truth, entry)
-          val trail = (prev, desc) :: all_my_circuits(prev)
-
-          // TODO reject from surface if the cost has increased for X rule applications
-
-          surface += (entry -> trail)
+          val cost = obj.measure(entry)
+          val (last_cost, history) = all_my_circuits(prev)
+          val trail = (cost, (prev, desc, last_cost) :: history)
           all_my_circuits += (entry -> trail)
-          // if (trail.size > 6) {
-          //   audit(entry)
-          //   sys.exit(1)
-          // }
+
+          // only add to the surface if we are making progress...
+          val progress = trail._2.map(_._3)
+          if (progress.size < 4 || progress(0) <= progress(3)) {
+            surface += (entry -> trail)
+          }
         }
       }
 
