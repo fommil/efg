@@ -308,12 +308,6 @@ object LocalRule {
     }
   }
 
-  // TODO use simulated annealing to build a transduction database. A way to
-  // find nodes that can be replaced would be to look 2+ levels deep and if the
-  // number of inputs is smaller than the depth then construct the truth table
-  // and perform a straight swap for the more efficient implementation. That
-  // might be cheaper and more straightforward than finding dterms.
-
 }
 
 trait GlobalRule {
@@ -811,26 +805,12 @@ object Main {
 
     // TODO add variants with truth table inverted for outputs with more than half true
 
-    // TODO calculate the alternative msop using 2-bit input decoders which
-    //      doubles the size of the inputs but typically reduces the size of the
-    //      sop network (~25% according to the literature).
-
-    // System.out.println("baseline = " + all_my_circuits.minBy(_._2))
-
     var step = 0
 
     // TODO parallelise
 
-    // TODO might be more efficient to find the optimal solution per channel
-    // first, then perturb from there to maximise sharing (perhaps with a subset
-    // of rules).
-
     // we repeat the same work for each output channel a lot of times so rule
     // application benefits from caching.
-    //
-    // it's unfortunate that only 1 step is allowed at a time, which may exclude
-    // multi-step changes that only produce an improvement in the objective
-    // function when all are applied, but individually increase costs.
 
     var surface = all_my_circuits
     while (step < max_steps && all_my_circuits.size < max_explored && surface.nonEmpty) {
@@ -892,34 +872,10 @@ object Main {
 
     System.out.println(s"optimised = $soln")
     System.out.println(s"SHARED = $shared ")
-    System.out.println(s"""TRAIL = ${audit(soln._1)}""")
+    audit(soln._1)
 
-    // TODO output the DTL circuit in yosys format
+    // FIXME output the DTL circuit in yosys format
     System.out.println(s"IMPL = $impl")
-
-    // TODO match the efficiency of the textbook solution
-
-    // the most tricky part of finding the optimal ADDER implementation is
-    // discovering this rule, through a combination of more primitive rules:
-    //
-    // a.b + a.c + b.c = a.b + c.(a'.b + a.b')
-
-    val textbook = {
-      import Hardware.DTL._
-
-      val A = REF(0)
-      val B = REF(1)
-      val Cin = REF(2)
-      val tmp = XOR(A, B)
-      val Co = OR(AND(tmp, Cin), AND(A, B))
-      val S = XOR(tmp, Cin)
-
-      Map("S" -> S, "Co" -> Co)
-    }
-    System.out.println(s"textbook impl = $textbook")
-    val fanout_textbook = Hardware.DTL.fanout(textbook.values.toSet)
-    System.out.println(s"textbook cost = ${obj.measureFanout(fanout_textbook)}")
-
   }
 
   def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Unit = {
