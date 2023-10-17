@@ -229,6 +229,13 @@ class LogicTest extends Test {
     assertLocalRule(Factor, logic)
   }
 
+  // (a·c) + (a + b)
+  def testFactor3: Unit = {
+    val logic = Or(And(a, c), Or(a, b))
+
+    assertLocalRule(Factor, logic)
+  }
+
 }
 
 // Local Variables:

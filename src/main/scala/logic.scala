@@ -30,6 +30,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 
+import scala.annotation.unused
 import scala.collection.immutable.BitSet
 
 import fommil.cache._
@@ -217,54 +218,48 @@ object LocalRule {
   //
   // Does not recurse into nested gates to find candidates.
   object Factor extends LocalRule {
+    // FIXME this is still to expensive
+    // it is too expensive to consider all the possible partial factors, but we
+    // can consider "all but one" as a compromise.
+    private def scope(@unused max: Int) = max // math.max(2, max - 1)
+
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
-        // FIXME rewrite to consider partial factors and eliminate directly
-        def rec(or: Or): List[Logic] = or.entries.toList.flatMap {
-          case nested: Or => rec(nested)
+        val incommon = scope(entries.size)
+        val candidates = entries.toList.flatMap {
+          case Or(terms) => terms.toList
           case e => List(e)
-        }
-        // this might be more efficiently implemented by doing the elimination
-        // directly instead of calling out to Eliminate since we know exactly
-        // what we want to set to True. Also, we can do the partial factors that
-        // way too.
-        entries.flatMap {
-          case nested: Or => rec(nested)
-          case _ => Nil
-        }.counts
-          .toList
-          .flatMap {
-            case (factor, c) =>
-              if (c < 2) None
-              else Some(Eliminate.eliminate(And(entries + factor)))
+        }.counts.filter(_._2 >= incommon).keySet
+        candidates.map { factor =>
+          val (uncommon, common) =  entries.partitionMap {
+            case and@ Or(terms) =>
+              if (terms.contains(factor)) Right(Or(terms - factor))
+              else Left(and)
+
+            case other =>
+              if (factor == other) Right(Inv(True))
+              else Left(other)
           }
+          And(uncommon + Or(factor, And(common)))
+        }.toList
 
       case Or(entries) =>
-        // we could be more aggressive and look deeper...
-        val candidates = entries.flatMap {
-          case and: And => and.entries + and
-          case other => Set(other)
-        }
+        val incommon = scope(entries.size)
+        val candidates = entries.toList.flatMap {
+          case And(terms) => terms.toList
+          case e => List(e)
+        }.counts.filter(_._2 >= incommon).keySet
+        candidates.map { factor =>
+          val (uncommon, common) =  entries.partitionMap {
+            case and@ And(terms) =>
+              if (terms.contains(factor)) Right(And(terms - factor))
+              else Left(and)
 
-        candidates.flatMap { factor =>
-          val (uncommon, common) =  entries.partitionMap { entry =>
-            if (entry == factor) Right(True)
-            else {
-              // FIXME I think we need to consider True and False here...
-              val replaced = entry.replace(factor, True)
-              if (replaced == entry) Left(entry) else Right(replaced)
-            }
+            case other =>
+              if (factor == other) Right(True)
+              else Left(other)
           }
-
-          if (common.isEmpty) None
-          else {
-            val alt = Or(uncommon + And(factor, Or(common)))
-            if (alt == node) None
-            else {
-              // System.out.println(s"DEBUG $factor reduces [$node] to [$alt] ($uncommon, $common)")
-              Some(alt)
-            }
-          }
+          Or(uncommon + And(factor, Or(common)))
         }.toList
 
       case _ => Nil
@@ -405,7 +400,6 @@ object GlobalRule {
     // a + b = a.b' + a'.b + a.b
     //
     // TODO higher arity
-    // FIXME this never seems to trigger
     private def xors_ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ors = circuits.flatMap { circuit =>
         circuit.nodes.collect { case e: Or if e.asXOR.isEmpty => e }
@@ -423,7 +417,7 @@ object GlobalRule {
       } yield {
         val a = subset.head
         val b = subset.tail.head
-        System.out.println(s"DEBUG XORS_ORS $a $b")
+//        System.out.println(s"DEBUG XORS_ORS $a $b")
 
         (left, new Or(left_.diff(subset) + Xor(a, b) + And(a, b)))
       }
@@ -785,7 +779,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split, Xclude).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split /*, Xclude*/).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._
@@ -866,6 +860,7 @@ object Main {
 
       }
       step += 1
+      System.out.println(s"STEP=$step EXPLORED=${all_my_circuits.size}")
     }
 
     val soln = all_my_circuits.minBy(_._2)
