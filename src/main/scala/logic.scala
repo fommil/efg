@@ -135,6 +135,8 @@ object LocalRule {
   // a + b = a.b' + a'.b + a.b
   //
   // TODO higher arity
+  //
+  // FIXME this rule might be redundant
   object Xclude extends LocalRule {
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size == 2 =>
@@ -218,10 +220,10 @@ object LocalRule {
   //
   // Does not recurse into nested gates to find candidates.
   object Factor extends LocalRule {
-    // FIXME this is still to expensive
+    // TODO this is still to expensive and seems to explode the search space
     // it is too expensive to consider all the possible partial factors, but we
     // can consider "all but one" as a compromise.
-    private def scope(@unused max: Int) = max // math.max(2, max - 1)
+    private def scope(@unused max: Int) = math.max(2, max - 1)
 
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
@@ -332,7 +334,7 @@ trait GlobalRule {
 }
 
 object GlobalRule {
-  // FIXME tests for the global rules
+  // TODO tests for the global rules
 
   // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
@@ -589,7 +591,7 @@ sealed trait Logic { self =>
       else Set.empty
   }
 
-  // FIXME using level2 as the only seed is bad because it only considers gates
+  // TODO using level2 as the only seed is bad because it only considers gates
   // where the uninverted inputs are the dimensions of the gate. But it may be
   // the case, for example, that the "b" needs to be inverted. We should
   // consider all permutations (gate dependent!).
@@ -787,6 +789,7 @@ object Main {
     }
 
     val max_steps = 1000
+    val max_explored = 100000
 
     val obj = Objective.DTL_Components(
       resistor = 0,
@@ -813,7 +816,13 @@ object Main {
 
     var step = 0
 
+    // FIXME add auditing so we can see what's going wrong when it runs away
+
     // TODO parallelise
+
+    // TODO might be more efficient to find the optimal solution per channel
+    // first, then perturb from there to maximise sharing (perhaps with a subset
+    // of rules).
 
     // we repeat the same work for each output channel a lot of times so rule
     // application benefits from caching.
@@ -823,7 +832,7 @@ object Main {
     // function when all are applied, but individually increase costs.
 
     var surface = all_my_circuits.keySet
-    while (step < max_steps && surface.nonEmpty) {
+    while (step < max_steps && all_my_circuits.size < max_explored && surface.nonEmpty) {
       val surface_ = surface
       surface = Set.empty
 
@@ -876,16 +885,12 @@ object Main {
     // TODO output the DTL circuit in yosys format
     System.out.println(s"IMPL = $impl")
 
-    // FIXME match the efficiency of the textbook solution
+    // TODO match the efficiency of the textbook solution
 
     // the most tricky part of finding the optimal ADDER implementation is
     // discovering this rule, through a combination of more primitive rules:
     //
     // a.b + a.c + b.c = a.b + c.(a'.b + a.b')
-
-    // FIXME why are we getting into this situation?
-    // (i0·i1) + (i0·i2) + (i1·i2) != ((i1'·i0) + (i1·i0'))' + (i0·i2) + (i1·i2) in Co
-    // (((i0·i1)'·((i0·i1') + (i0'·i1))') + ((i1'·i0) + (i1·i0')))' + (i0·i2) + (i1·i2)
 
     val textbook = {
       import Hardware.DTL._

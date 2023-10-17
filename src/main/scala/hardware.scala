@@ -34,16 +34,16 @@ object Hardware {
 
     // voltage divider (has fan-in constraints)
     // TODO calculate the fan-in constraint in Falstad and breadboard
-    case class NOR(entries: Set[DTL]) extends DTL
+    case class NOR(entries: Set[DTL]) extends DTL { override def toString = s"""NOR(${entries.mkString(", ")})"""}
 
     // rectifier and NPN "Not One Hot". Equivalent to XNOR for 2 inputs but not any other arity.
     //
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
     // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
     // TODO calculate the fan-in constraint in Falstad and breadboard
-    case class NOH(entries: Set[DTL]) extends DTL
+    case class NOH(entries: Set[DTL]) extends DTL { override def toString = s"""NOH(${entries.mkString(", ")})"""}
     // "One Hot" uses PNP, equivalent to XOR for 2 inputs.
-    case class OH (entries: Set[DTL]) extends DTL
+    case class OH (entries: Set[DTL]) extends DTL { override def toString = s"""OH(${entries.mkString(", ")})"""}
 
     // There are situations where it is preferable to use a transistor XOR
     // encoding when diodes are expensive or take up too much space.
@@ -52,8 +52,8 @@ object Hardware {
     //
     // TODO find an efficent way to implement multi-input XOR/XNOR otherwise,
     // this should be viewed as nested XOR2 / XNOR2 at the hardware.
-    case class XOR(entries: Set[DTL]) extends DTL  { override def toString = s"""XOR(${entries.mkString(", ")})"""}
-    case class XNOR(entries: Set[DTL]) extends DTL // ⊙
+    case class XOR(entries: Set[DTL]) extends DTL { override def toString = s"""XOR(${entries.mkString(", ")})"""}
+    case class XNOR(entries: Set[DTL]) extends DTL { override def toString = s"""XNOR(${entries.mkString(", ")})"""}
 
     // TODO eval to verify that the desired Logic is retained
 
@@ -77,9 +77,11 @@ object Hardware {
         lazy val oh = e.asOH
         lazy val xor = e.asXOR
         lazy val xnor = e.asXNOR
-        if (noh.nonEmpty) NOH(noh.map(materialise(_)))
+        // FIXME we should return the list here because it's not clear
+        // which one is more efficient in the general case
+        if (xor.nonEmpty) XOR(xor.map(materialise(_)))
+        else if (noh.nonEmpty) NOH(noh.map(materialise(_)))
         else if (oh.nonEmpty) OH(oh.map(materialise(_)))
-        else if (xor.nonEmpty) XOR(xor.map(materialise(_)))
         else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
         else OR(es.map(materialise(_)))
     }
