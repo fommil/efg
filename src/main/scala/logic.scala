@@ -319,8 +319,6 @@ trait GlobalRule {
 }
 
 object GlobalRule {
-  // TODO tests for the global rules
-
   // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
   object SharedAnd extends GlobalRule {

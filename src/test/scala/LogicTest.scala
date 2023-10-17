@@ -5,6 +5,7 @@ import scala.collection.immutable.BitSet
 import internal._
 
 import LocalRule._
+import GlobalRule._
 import Logic._
 
 object LogicGen {
@@ -130,11 +131,33 @@ class LogicTest extends Test {
     }
   }
 
+  def assertGlobalRule(rule: GlobalRule, ast: Logic): Unit = {
+    val high_ = ast.nodes.collect { case In(i) => i }.maxOption
+    if (high_.isEmpty) return // no Inputs
+    val high = high_.get
+
+    rule.perform(Set(ast)).foreach { transform =>
+      val transformed = ast.replace(transform)
+      assert(transformed != ast, "should only return new forms")
+      (0 until 1 << high).foreach { i =>
+        val in = BitSet.fromBitMask(Array(i))
+        val expected = ast.eval(in)
+        val got = transformed.eval(in)
+        lazy val in_ = (0 to high).map(in(_)).mkString(",")
+        assert(expected == got, s"\nORIG  = $ast\nTRANS = $transformed\nIN    = ${in_} ($expected, $got) ")
+      }
+    }
+  }
+
   /////////////////
   // PROPERTY TESTS
 
   def propLocalRule(rule: LocalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) {
     ast => assertLocalRule(rule, ast)
+  }
+
+  def propGlobalRule(rule: GlobalRule) = Gen.prop(LogicGen.gen, LogicGen.shrinker) {
+    ast => assertGlobalRule(rule, ast)
   }
 
   def testUnNest: Unit = propLocalRule(UnNest)
@@ -143,6 +166,11 @@ class LogicTest extends Test {
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
+
+  def testSharedAnd: Unit = propGlobalRule(SharedAnd)
+  def testSharedOr: Unit = propGlobalRule(SharedOr)
+  def testSharedXor: Unit = propGlobalRule(SharedXor)
+  def testSharedOrXor: Unit = propGlobalRule(SharedOrXor)
 
   // any property test that fails, no matter how simple, should be documented
   // below as a standalone test, committed along with the fix.
