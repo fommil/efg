@@ -73,16 +73,17 @@ object Hardware {
       case And(es) => AND(es.map(materialise(_)))
 
       case e@ Or(es) =>
-        val noh = e.asNOH
+        lazy val noh = e.asNOH
         lazy val oh = e.asOH
-        lazy val xor = e.asXOR
+        val xor = e.asXOR
         lazy val xnor = e.asXNOR
-        // FIXME we should return the list here because it's not clear
-        // which one is more efficient in the general case
+        // it's not clear which gate is more efficient in the general case when
+        // multiple are possible so the ordering here is just a rule of thumb.
+        // (they only collide for 2 entries).
         if (xor.nonEmpty) XOR(xor.map(materialise(_)))
+        else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
         else if (noh.nonEmpty) NOH(noh.map(materialise(_)))
         else if (oh.nonEmpty) OH(oh.map(materialise(_)))
-        else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
         else OR(es.map(materialise(_)))
     }
 

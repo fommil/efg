@@ -136,7 +136,7 @@ object LocalRule {
   //
   // TODO higher arity
   //
-  // FIXME this rule might be redundant
+  // TODO this rule might be redundant
   object Xclude extends LocalRule {
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size == 2 =>
@@ -145,7 +145,6 @@ object LocalRule {
         List(Or(Xor(a, b), And(a, b)))
       case _ => Nil
     }
-
   }
 
   // Eliminate by absorption
@@ -220,10 +219,7 @@ object LocalRule {
   //
   // Does not recurse into nested gates to find candidates.
   object Factor extends LocalRule {
-    // TODO this is still to expensive and seems to explode the search space
-    // it is too expensive to consider all the possible partial factors, but we
-    // can consider "all but one" as a compromise.
-    private def scope(@unused max: Int) = math.max(2, max - 1)
+    private def scope(@unused max: Int) = 2 // math.max(2, max - 1)
 
     def perform(node: Logic): List[Logic] = node match {
       case And(entries) =>
@@ -315,15 +311,11 @@ object LocalRule {
     override def toString = underlying.toString
   }
 
-  // TODO hand-coded transduction rules (e.g. inverters replaced with NANDs)
-  //      including the two standard test cases that seem to be used over and
-  //      over in expand/reduce techniques like transduction.
-
   // TODO use simulated annealing to build a transduction database. A way to
   // find nodes that can be replaced would be to look 2+ levels deep and if the
   // number of inputs is smaller than the depth then construct the truth table
-  // and perform a straight swap for the more efficient implementation. That might
-  // be cheaper and more straightforward than finding dterms.
+  // and perform a straight swap for the more efficient implementation. That
+  // might be cheaper and more straightforward than finding dterms.
 
 }
 
@@ -419,8 +411,6 @@ object GlobalRule {
       } yield {
         val a = subset.head
         val b = subset.tail.head
-//        System.out.println(s"DEBUG XORS_ORS $a $b")
-
         (left, new Or(left_.diff(subset) + Xor(a, b) + And(a, b)))
       }
     }.toList
@@ -718,7 +708,7 @@ object Logic {
       apply(tail.toSet + head)
 
     def apply(entries: Set[Logic]): Logic = {
-      // TODO support all arities
+      // TODO support all arities (see asXOR)
       if (entries.size == 2) {
         val i0 = entries.head
         val i1 = entries.tail.head
