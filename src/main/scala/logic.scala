@@ -408,7 +408,6 @@ object GlobalRule {
     override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
       xors_ors(circuits).map { case (a, b) => Map(a -> b) }
 
-    // TODO higher arity
     private def xors_ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ors = circuits.flatMap { circuit =>
         circuit.nodes.collect { case e: Or if e.asXOR.isEmpty => e }
@@ -422,11 +421,12 @@ object GlobalRule {
         left_ = left.entries
         right_ = right.asXOR
         subset = left_.intersect(right_)
-        if subset.size == 2
       } yield {
-        val a = subset.head
-        val b = subset.tail.head
-        (left, new Or(left_.diff(subset) + Xor(a, b) + And(a, b)))
+        val evens = (2 to subset.size by 2).flatMap { i =>
+          subset.subsets(i).map(And(_))
+        }.toSet
+
+        (left, new Or(left_.diff(subset) ++ evens + Xor(subset)))
       }
     }.toList
 
@@ -531,14 +531,8 @@ sealed trait Logic { self =>
     case And(_) => Set.empty // reachable by DeMorgan
     case Or(es) =>
       val abc = level2(es)
-      val abc_ = abc.map(Inv(_))
-      val expect_xor = (1 to abc_.size by 2).toSet.flatMap { i: Int =>
-        abc_.subsets(i).map { subs =>
-          And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
-        }.toSet
-      }
-
-      if (es == expect_xor) abc
+      val expect_xor = Xor(abc)
+      if (this == expect_xor) abc
       else Set.empty
   }
 
@@ -723,26 +717,12 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
-    def apply(entries: Set[Logic]): Logic = {
-      // TODO support all arities (see asXOR)
-      if (entries.size == 2) {
-        val i0 = entries.head
-        val i1 = entries.tail.head
-        Or(
-          And(Inv(i0), i1), // x' y
-          And(i0, Inv(i1)), // x  y'
-        )
-      } else if (entries.size == 3) {
-        val i0 = entries.head
-        val i1 = entries.tail.head
-        val i2 = entries.tail.tail.head
-        Or(
-          And(Inv(i0), Inv(i1), i2), // x' y' z
-          And(Inv(i0), i1, Inv(i2)), // x' y  z'
-          And(i0, Inv(i1), Inv(i2)), // x  y' z'
-          And(i0, i1, i2),           // x  y  z
-        )
-      } else ???
+    def apply(entries: Set[Logic]): Logic = Or {
+      (1 to entries.size by 2).flatMap { i: Int =>
+        entries.subsets(i).map { odd =>
+          And(odd ++ entries.diff(odd).map(Inv(_)))
+        }
+      }.toSet
     }
   }
 

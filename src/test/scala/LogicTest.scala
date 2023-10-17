@@ -52,6 +52,7 @@ class LogicTest extends Test {
       And(Inv(In(0)), In(1)),
       And(In(0), Inv(In(1))),
     )
+    assertEquals(node2, Xor(In(0), In(1)))
     assertEquals(Set(In(0), In(1)), node2.asXOR)
 
     val node3 = Or(
@@ -60,6 +61,7 @@ class LogicTest extends Test {
       And(In(0), Inv(In(1)), Inv(In(2))),
       And(In(0), In(1), In(2)),
     )
+    assertEquals(node3, Xor(In(0), In(1), In(2)))
     assertEquals(Set(In(0), In(1), In(2)), node3.asXOR)
   }
 
