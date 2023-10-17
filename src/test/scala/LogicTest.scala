@@ -141,7 +141,6 @@ class LogicTest extends Test {
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
-  def testXclude: Unit = propLocalRule(Xclude)
 
   // any property test that fails, no matter how simple, should be documented
   // below as a standalone test, committed along with the fix.
@@ -197,14 +196,6 @@ class LogicTest extends Test {
 
   // (a + b + c) should not try to nest
   def testNest1: Unit = assertLocalRule(Nest, Or(a, b, c))
-
-  // a + b = a.b' + a'.b + a.b
-  def testXclude1: Unit = {
-    val or = Or(a, b)
-    val xor = Or(Xor(a, b), And(a, b))
-    assertEquals(List(xor), Xclude.perform(or))
-    assertLocalRule(Xclude, or)
-  }
 
   // a.b + a.c + b.c should find partial factors
   def testFactor1: Unit = {

@@ -323,12 +323,11 @@ object GlobalRule {
 
   // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
-  object Shared extends GlobalRule {
-    override def name: String = "shared"
+  object SharedAnd extends GlobalRule {
+    override def name: String = "shared_and"
 
-    // TODO split out as separate rules
     override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      (ands(circuits) ++ ors(circuits) ++ xors(circuits) ++ xors_ors(circuits)).map { case (a, b) => Map(a -> b) }
+      ands(circuits).map { case (a, b) => Map(a -> b) }
 
     private def ands(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ands = circuits.flatMap { circuit =>
@@ -346,6 +345,13 @@ object GlobalRule {
         (left, new And(left_.diff(subset) + new And(subset)))
       }
     }.toList
+  }
+
+  object SharedOr extends GlobalRule {
+    override def name: String = "shared_or"
+
+    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
+      ors(circuits).map { case (a, b) => Map(a -> b) }
 
     private def ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ors = circuits.flatMap { circuit =>
@@ -363,6 +369,13 @@ object GlobalRule {
         (left, new Or(left_.diff(subset) + new Or(subset)))
       }
     }.toList
+  }
+
+  object SharedXor extends GlobalRule {
+    override def name: String = "shared_xor"
+
+    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
+      xors(circuits).map { case (a, b) => Map(a -> b) }
 
     // these are not caught by the 'ors' rule because of the complex interaction
     // between the components.
@@ -383,12 +396,18 @@ object GlobalRule {
         (left, Xor(left_.diff(subset) + Xor(subset)))
       }
     }.toList
+  }
 
-    // this detects when an OR can be expanded because it would allow its
-    // XOR component to be shared.
-    //
-    // a + b = a.b' + a'.b + a.b
-    //
+  // this detects when an OR can be expanded because it would allow its
+  // XOR component to be shared.
+  //
+  // a + b = a.b' + a'.b + a.b
+  object SharedOrXor extends GlobalRule {
+    override def name: String = "shared_or_xor"
+
+    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
+      xors_ors(circuits).map { case (a, b) => Map(a -> b) }
+
     // TODO higher arity
     private def xors_ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ors = circuits.flatMap { circuit =>
@@ -412,6 +431,7 @@ object GlobalRule {
     }.toList
 
   }
+
 }
 
 // combinatorial logic, cycles are not permitted (caller's responsibility).
@@ -767,11 +787,11 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split /*, Xclude*/).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._
-      List(Shared)
+      List(SharedAnd, SharedOr, SharedXor, SharedOrXor)
     }
 
     val max_steps = 1000
