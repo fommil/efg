@@ -64,6 +64,13 @@ class LogicTest extends Test {
     )
     assertEquals(node3, Xor(In(0), In(1), In(2)))
     assertEquals(Set(In(0), In(1), In(2)), node3.asXOR)
+
+    // this is also XNOR on 0,1
+    val flipped2 = Xor(In(0), Inv(In(1)))
+    assertEquals(Set(In(0), Inv(In(1))), flipped2.asXOR)
+
+    val flipped3 = Xor(In(0), In(1), Inv(In(2)))
+    assertEquals(Set(In(0), In(1), Inv(In(2))), flipped3.asXOR)
   }
 
   def testXNOR: Unit = {

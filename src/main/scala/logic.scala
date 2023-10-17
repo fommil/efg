@@ -528,6 +528,14 @@ sealed trait Logic { self =>
     case Inv(e) => e.asXNOR
     case And(_) => Set.empty // reachable by DeMorgan
     case Or(es) =>
+      es.flatMap {
+        case And(bits) => bits
+        case _ => Set.empty
+      }.counts.toList.sortWith {
+        case (left, right) =>
+      }
+
+
       val abc = level2(es)
       val expect_xor = Xor(abc)
       if (this == expect_xor) abc
