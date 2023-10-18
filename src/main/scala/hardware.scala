@@ -57,6 +57,8 @@ object Hardware {
 
     // TODO eval to verify that the desired Logic is retained
 
+    // TODO is there an efficient way to encode an (N)IMPLY gate?
+
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
       case In(i) => REF(i)
@@ -73,17 +75,17 @@ object Hardware {
       case And(es) => AND(es.map(materialise(_)))
 
       case e@ Or(es) =>
-        lazy val noh = e.asNOH
-        lazy val oh = e.asOH
         val xor = e.asXOR
-        lazy val xnor = e.asXNOR
+        // lazy val noh = e.asNOH
+        // lazy val oh = e.asOH
+        // lazy val xnor = e.asXNOR
         // it's not clear which gate is more efficient in the general case when
         // multiple are possible so the ordering here is just a rule of thumb.
         // (they only collide for 2 entries).
         if (xor.nonEmpty) XOR(xor.map(materialise(_)))
-        else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
-        else if (noh.nonEmpty) NOH(noh.map(materialise(_)))
-        else if (oh.nonEmpty) OH(oh.map(materialise(_)))
+        // else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
+        // else if (noh.nonEmpty) NOH(noh.map(materialise(_)))
+        // else if (oh.nonEmpty) OH(oh.map(materialise(_)))
         else OR(es.map(materialise(_)))
     }
 

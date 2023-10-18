@@ -115,7 +115,8 @@ object LocalRule {
   object Split extends LocalRule {
     override def name: String = "split"
 
-    private def isGate(n: Logic): Boolean = n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
+    private def isGate(n: Logic): Boolean = // n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
+      n.asXOR.nonEmpty
 
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
@@ -419,12 +420,13 @@ object GlobalRule {
         left_ = left.entries
         right_ = right.asXOR
         subset = left_.intersect(right_)
+        if subset.size >= 2
       } yield {
         val evens = (2 to subset.size by 2).flatMap { i =>
           subset.subsets(i).map(And(_))
         }.toSet
 
-        (left, new Or(left_.diff(subset) ++ evens + Xor(subset)))
+        (left, Or(left_.diff(subset) ++ evens + Xor(subset)))
       }
     }.toList
 
@@ -518,105 +520,113 @@ sealed trait Logic { self =>
   // this node can be represented by that gate. This is important for both rule
   // application and hardware dependent materialisation stages. A logic node may
   // be represented by multiple gates, e.g. XOR is the same as OH for 2 inputs.
+  //
+  // nested logic is NOT considered.
 
   // x ⊕ y = (x' · y) + (x · y')
   //
   // extending to n-arity matches all odd parities.
-  lazy val asXOR: Set[Logic] = this match {
+  lazy val asXOR: Set[Logic] = asXOR_
+  private def asXOR_ : Set[Logic] = this match {
     case True => Set.empty
     case In(_) => Set.empty
-    case Inv(e) => e.asXNOR
+    case Inv(_) => Set.empty // e.asXNOR
     case And(_) => Set.empty // reachable by DeMorgan
     case Or(es) =>
-      es.flatMap {
-        case And(bits) => bits
-        case _ => Set.empty
-      }.counts.toList.sortWith {
-        case (left, right) =>
+      val (invalid, terms) = es.partitionMap {
+        case And(es_) => Right(es_)
+        case other => Left(other)
+      }
+      val comps = terms.flatten
+      val norms = comps.map {
+        case Inv(e) => e
+        case e => e
       }
 
+      // some properties of XOR:
+      //
+      // - every term has the same number of components.
+      // - every component, and its inverse, appears an equal number of times.
+      // - the number of terms is the number of ways to get odd parity.
+      //
+      // This enables early exit when detecting XOR gates but makes it hard to
+      // find the correct normalisation for each input due to
+      //
+      //   XOR(a, b', c) != XOR(a, b, c) [in general, with exceptions]
+      //
+      // To find the correct input basis, we must consider every combination
+      // (although it's probably possible to prune the set due to parity).
+      if (invalid.nonEmpty || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
+        return Set.empty
 
-      val abc = level2(es)
-      val expect_xor = Xor(abc)
-      if (this == expect_xor) abc
-      else Set.empty
-  }
-
-  // x ⊙ y = (x · y) + (x' · y')
-  //
-  // extending to n-arity is everything except odd parities.
-  lazy val asXNOR: Set[Logic] =  this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asXOR
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val abc = level2(es)
-      val abc_ = abc.map(Inv(_))
-      val expect_xnor = (1 to abc_.size).filter(_ % 2 == 0).toSet.flatMap { i: Int =>
-        abc_.subsets(i).map { subs =>
-          And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
-        }.toSet
-      } + And(abc_)
-
-      if (es == expect_xnor) abc
-      else Set.empty
-  }
-
-  lazy val asOH: Set[Logic] = this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asNOH
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val abc = level2(es)
-      val abc_ = abc.map(Inv(_))
-      val expect_oh = abc_.map { a =>
-        And((abc_ - a) + Inv(a))
+      (0 to norms.size).reverse.foreach { i =>
+        // subsets(0) gives an empty set allowing for all flipped
+        norms.subsets(i).foreach { ss =>
+          val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
+          if (Xor(inputs) == this) return inputs
+        }
       }
-
-      if (es == expect_oh) abc
-      else Set.empty
+      Set.empty
   }
 
-  lazy val asNOH: Set[Logic] =  this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asOH
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val abc = level2(es)
-      val abc_ = abc.map(Inv(_))
-      val expect_noh = (2 to abc_.size).toSet.flatMap { i: Int =>
-        abc_.subsets(i).map { subs =>
-          And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
-        }.toSet
-      } + And(abc_)
+  // TODO rewrite and reinstate XNOR
+  // TODO rewrite and reinstate OH
+  // TODO rewrite and reinstate NOH
 
-      if (es == expect_noh) abc
-      else Set.empty
-  }
+  // // x ⊙ y = (x · y) + (x' · y')
+  // //
+  // // extending to n-arity is everything except odd parities.
+  // lazy val asXNOR: Set[Logic] =  this match {
+  //   case True => Set.empty
+  //   case In(_) => Set.empty
+  //   case Inv(e) => e.asXOR
+  //   case And(_) => Set.empty // reachable by DeMorgan
+  //   case Or(es) =>
+  //     val abc = level2(es)
+  //     val abc_ = abc.map(Inv(_))
+  //     val expect_xnor = (1 to abc_.size).filter(_ % 2 == 0).toSet.flatMap { i: Int =>
+  //       abc_.subsets(i).map { subs =>
+  //         And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
+  //       }.toSet
+  //     } + And(abc_)
 
-  // TODO using level2 as the only seed is bad because it only considers gates
-  // where the uninverted inputs are the dimensions of the gate. But it may be
-  // the case, for example, that the "b" needs to be inverted. We should
-  // consider all permutations (gate dependent!).
+  //     if (es == expect_xnor) abc
+  //     else Set.empty
+  // }
 
-  // returns all elements at the next level with inversions removed
-  private def level2(els: Set[Logic]): Set[Logic] = {
-    def norm(e: Logic): Logic = e match {
-      case Inv(e) => e
-      case e => e
-    }
+  // lazy val asOH: Set[Logic] = this match {
+  //   case True => Set.empty
+  //   case In(_) => Set.empty
+  //   case Inv(e) => e.asNOH
+  //   case And(_) => Set.empty // reachable by DeMorgan
+  //   case Or(es) =>
+  //     val abc = level2(es)
+  //     val abc_ = abc.map(Inv(_))
+  //     val expect_oh = abc_.map { a =>
+  //       And((abc_ - a) + Inv(a))
+  //     }
 
-    els.flatMap {
-      case Or(es) => es.map(norm(_))
-      case And(es) => es.map(norm(_))
-      case Inv(And(es)) => es.map(norm(_))
-      case Inv(Or(es)) => es.map(norm(_))
-      case _ => Nil
-    }
-  }
+  //     if (es == expect_oh) abc
+  //     else Set.empty
+  // }
+
+  // lazy val asNOH: Set[Logic] =  this match {
+  //   case True => Set.empty
+  //   case In(_) => Set.empty
+  //   case Inv(e) => e.asOH
+  //   case And(_) => Set.empty // reachable by DeMorgan
+  //   case Or(es) =>
+  //     val abc = level2(es)
+  //     val abc_ = abc.map(Inv(_))
+  //     val expect_noh = (2 to abc_.size).toSet.flatMap { i: Int =>
+  //       abc_.subsets(i).map { subs =>
+  //         And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
+  //       }.toSet
+  //     } + And(abc_)
+
+  //     if (es == expect_noh) abc
+  //     else Set.empty
+  // }
 
 }
 object Logic {
@@ -826,7 +836,13 @@ object Main {
 
       def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
         if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
-          verify(minsums.input_width, ground_truth, entry)
+          try verify(minsums.input_width, ground_truth, entry)
+          catch {
+            case e: AssertionError =>
+              System.err.println(s"Rule was $desc")
+              throw e
+          }
+
           val cost = obj.measure(entry)
           val (last_cost, history) = all_my_circuits(prev)
           val trail = (cost, (prev, desc, last_cost) :: history)
