@@ -856,6 +856,10 @@ object Main {
         }
       }
 
+      // FIXME prune the width of the search for problems such as hexdecoder.
+      // e.g. randomly select the rule / node that we consider in each step,
+      // only consider the best N of surface_.
+
       surface_.foreach { case (last_soln, _) =>
         val nodes = last_soln.values.flatMap(_.nodes)
         local_rules.foreach { rule =>
