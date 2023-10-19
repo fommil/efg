@@ -790,8 +790,9 @@ object Main {
       List(SharedAnd, SharedOr, SharedXor, SharedOrXor)
     }
 
-    val max_steps = 1000
-    val max_explored = 100000
+    val max_steps = 128
+    val max_explored = 1024 * 1024
+    val max_width = 128
 
     val obj = Objective.DTL_Components(
       resistor = 0,
@@ -831,7 +832,7 @@ object Main {
 
     var surface = all_my_circuits
     while (step < max_steps && all_my_circuits.size < max_explored && surface.nonEmpty) {
-      val surface_ = surface
+      var surface_ = surface
       surface = Map.empty
 
       def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
@@ -856,9 +857,11 @@ object Main {
         }
       }
 
-      // FIXME prune the width of the search for problems such as hexdecoder.
-      // e.g. randomly select the rule / node that we consider in each step,
-      // only consider the best N of surface_.
+      // this is where we prune the width of the search space. There are many
+      // strategies that could be taken here (including random sampling, or
+      // maximising hamming distance), but we do the very naive thing of only
+      // considering the best performing circuits.
+      surface_ = surface_.toList.sortBy(_._2._1).take(max_width).toMap
 
       surface_.foreach { case (last_soln, _) =>
         val nodes = last_soln.values.flatMap(_.nodes)
@@ -888,9 +891,7 @@ object Main {
       System.out.println(s"STEP=$step EXPLORED=${all_my_circuits.size}")
     }
 
-    val soln = all_my_circuits.map {
-      case (circuit, _) => circuit -> obj.measure(circuit)
-    }.minBy(_._2)
+    val soln = all_my_circuits.minBy(_._2._1)
     val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
     val shared = Hardware.DTL.fanout(impl.values.toSet).filter {
       case (Hardware.DTL.REF(_), _) => false
