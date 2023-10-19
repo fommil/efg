@@ -115,8 +115,8 @@ object LocalRule {
   object Split extends LocalRule {
     override def name: String = "split"
 
-    private def isGate(n: Logic): Boolean = // n.asNOH.nonEmpty || n.asOH.nonEmpty || n.asXNOR.nonEmpty || n.asXOR.nonEmpty
-      n.asXOR.nonEmpty
+    private def isGate(n: Logic): Boolean =
+      n.asXOR.nonEmpty || n.asXNOR.nonEmpty // || n.asNOH.nonEmpty || n.asOH.nonEmpty
 
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
@@ -522,6 +522,10 @@ sealed trait Logic { self =>
   // be represented by multiple gates, e.g. XOR is the same as OH for 2 inputs.
   //
   // nested logic is NOT considered.
+  //
+  // XOR/XNOR can have their inputs rotated, it would be interesting to have
+  // rules that do that, but it would involve a refactor as we don't preserve
+  // that kind of information in the AST.
 
   // x ⊕ y = (x' · y) + (x · y')
   //
@@ -530,7 +534,7 @@ sealed trait Logic { self =>
   private def asXOR_ : Set[Logic] = this match {
     case True => Set.empty
     case In(_) => Set.empty
-    case Inv(_) => Set.empty // e.asXNOR
+    case Inv(e) => e.asXNOR
     case And(_) => Set.empty // reachable by DeMorgan
     case Or(es) =>
       val (invalid, terms) = es.partitionMap {
@@ -556,7 +560,7 @@ sealed trait Logic { self =>
       //
       // To find the correct input basis, we must consider every combination
       // (although it's probably possible to prune the set due to parity).
-      if (invalid.nonEmpty || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
+      if (invalid.nonEmpty || norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
         return Set.empty
 
       (0 to norms.size).reverse.foreach { i =>
@@ -569,11 +573,41 @@ sealed trait Logic { self =>
       Set.empty
   }
 
-  // TODO rewrite and reinstate XNOR
   // TODO rewrite and reinstate OH
   // TODO rewrite and reinstate NOH
 
-  // // x ⊙ y = (x · y) + (x' · y')
+  // x ⊙ y = (x · y) + (x' · y')
+  lazy val asXNOR: Set[Logic] = asXNOR_
+  private def asXNOR_ : Set[Logic] = this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => e.asXOR
+    case And(_) => Set.empty // reachable by DeMorgan
+    case Or(es) =>
+      val (invalid, terms) = es.partitionMap {
+        case And(es_) => Right(es_)
+        case other => Left(other)
+      }
+      val comps = terms.flatten
+      val norms = comps.map {
+        case Inv(e) => e
+        case e => e
+      }
+
+      // XNOR has roughly the same properties as XOR
+      if (invalid.nonEmpty || norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
+        return Set.empty
+
+      (0 to norms.size).reverse.foreach { i =>
+        // subsets(0) gives an empty set allowing for all flipped
+        norms.subsets(i).foreach { ss =>
+          val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
+          if (Xnor(inputs) == this) return inputs
+        }
+      }
+      Set.empty
+  }
+
   // //
   // // extending to n-arity is everything except odd parities.
   // lazy val asXNOR: Set[Logic] =  this match {
@@ -734,9 +768,24 @@ object Logic {
       apply(tail.toSet + head)
 
     def apply(entries: Set[Logic]): Logic = Or {
+      require(entries.size >= 2)
       (1 to entries.size by 2).flatMap { i: Int =>
         entries.subsets(i).map { odd =>
           And(odd ++ entries.diff(odd).map(Inv(_)))
+        }
+      }.toSet
+    }
+  }
+
+  object Xnor {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
+
+    def apply(entries: Set[Logic]): Logic = Or {
+      require(entries.size >= 2)
+      (0 to entries.size by 2).flatMap { i: Int =>
+        entries.subsets(i).map { even =>
+          And(even ++ entries.diff(even).map(Inv(_)))
         }
       }.toSet
     }

@@ -75,21 +75,28 @@ class LogicTest extends Test {
     assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXOR)
   }
 
-  // def testXNOR: Unit = {
-  //   val node2 = Or(
-  //     And(Inv(In(0)), Inv(In(1))),
-  //     And(In(0), In(1)),
-  //   )
-  //   assertEquals(Set(In(0), In(1)), node2.asXNOR)
+  def testXNOR: Unit = {
+    val node2 = Or(
+      And(Inv(In(0)), Inv(In(1))),
+      And(In(0), In(1)),
+    )
+    assertEquals(Set(In(0), In(1)), node2.asXNOR)
 
-  //   val node3 = Or(
-  //     And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-  //     And(In(0), In(1), Inv(In(2))),
-  //     And(In(0), Inv(In(1)), In(2)),
-  //     And(Inv(In(0)), In(1), In(2)),
-  //   )
-  //   assertEquals(Set(In(0), In(1), In(2)), node3.asXNOR)
-  // }
+    val node3 = Or(
+      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+      And(In(0), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), In(2)),
+    )
+    assertEquals(Set(In(0), In(1), In(2)), node3.asXNOR)
+
+    // like with XOR we can't recover the original input normalizations...
+    val flipped2 = Xnor(In(0), Inv(In(1)))
+    assertEquals(Set(Inv(In(0)), In(1)), flipped2.asXNOR)
+
+    val flipped3 = Xnor(In(0), In(1), Inv(In(2)))
+    assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXNOR)
+  }
 
   // def testOH: Unit = {
   //   val node2 = Or(
