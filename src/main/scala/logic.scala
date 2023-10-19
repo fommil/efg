@@ -116,7 +116,7 @@ object LocalRule {
     override def name: String = "split"
 
     private def isGate(n: Logic): Boolean =
-      n.asXOR.nonEmpty || n.asXNOR.nonEmpty // || n.asNOH.nonEmpty || n.asOH.nonEmpty
+      n.asXOR.nonEmpty || n.asXNOR.nonEmpty || n.asOH.nonEmpty // || n.asNOH.nonEmpty
 
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
@@ -506,7 +506,7 @@ sealed trait Logic { self =>
       }
   }
 
-  lazy val nodes: Set[Logic] = {
+  def nodes: Set[Logic] = {
     self match {
       case True => Set(self)
       case In(_) => Set(self)
@@ -524,8 +524,12 @@ sealed trait Logic { self =>
   // nested logic is NOT considered.
   //
   // XOR/XNOR can have their inputs rotated, it would be interesting to have
-  // rules that do that, but it would involve a refactor as we don't preserve
-  // that kind of information in the AST.
+  // rules that explore that space, but it would involve a refactor as we don't
+  // preserve that kind of information in the AST which would presumably need to
+  // be expanded to include XOR/NOR/OH/NOH etc.
+  //
+  // there's a lot of duplication between these as* convertors so it would be
+  // beneficial to performance to do all the work once.
 
   // x ⊕ y = (x' · y) + (x · y')
   //
@@ -573,9 +577,6 @@ sealed trait Logic { self =>
       Set.empty
   }
 
-  // TODO rewrite and reinstate OH
-  // TODO rewrite and reinstate NOH
-
   // x ⊙ y = (x · y) + (x' · y')
   lazy val asXNOR: Set[Logic] = asXNOR_
   private def asXNOR_ : Set[Logic] = this match {
@@ -608,42 +609,32 @@ sealed trait Logic { self =>
       Set.empty
   }
 
-  // //
-  // // extending to n-arity is everything except odd parities.
-  // lazy val asXNOR: Set[Logic] =  this match {
-  //   case True => Set.empty
-  //   case In(_) => Set.empty
-  //   case Inv(e) => e.asXOR
-  //   case And(_) => Set.empty // reachable by DeMorgan
-  //   case Or(es) =>
-  //     val abc = level2(es)
-  //     val abc_ = abc.map(Inv(_))
-  //     val expect_xnor = (1 to abc_.size).filter(_ % 2 == 0).toSet.flatMap { i: Int =>
-  //       abc_.subsets(i).map { subs =>
-  //         And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
-  //       }.toSet
-  //     } + And(abc_)
+  lazy val asOH: Set[Logic] = asOH_
+  private def asOH_ : Set[Logic] = this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => Set.empty // TODO e.asNOH
+    case And(_) => Set.empty // reachable by DeMorgan
+    case Or(es) =>
+      val (invalid, terms) = es.toList.partitionMap {
+        case And(es_) => Right(es_.toList)
+        case other => Left(other)
+      }
+      val widths = terms.map(_.size).toSet
+      val counts = terms.flatten.counts
 
-  //     if (es == expect_xnor) abc
-  //     else Set.empty
-  // }
+      if (invalid.nonEmpty || widths.size != 1 || widths.head < 3 || counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
+        return Set.empty
 
-  // lazy val asOH: Set[Logic] = this match {
-  //   case True => Set.empty
-  //   case In(_) => Set.empty
-  //   case Inv(e) => e.asNOH
-  //   case And(_) => Set.empty // reachable by DeMorgan
-  //   case Or(es) =>
-  //     val abc = level2(es)
-  //     val abc_ = abc.map(Inv(_))
-  //     val expect_oh = abc_.map { a =>
-  //       And((abc_ - a) + Inv(a))
-  //     }
+      // unlike XOR/XNOR we can actually recover the inversion of the inputs
+      // because they do not appear in equal measure.
+      val inputs = counts.groupBy(_._2).minBy(_._1)._2.keySet
 
-  //     if (es == expect_oh) abc
-  //     else Set.empty
-  // }
+      if (Oh(inputs) == this) inputs
+      else Set.empty
+  }
 
+  // TODO rewrite and reinstate NOH
   // lazy val asNOH: Set[Logic] =  this match {
   //   case True => Set.empty
   //   case In(_) => Set.empty
@@ -788,6 +779,18 @@ object Logic {
           And(even ++ entries.diff(even).map(Inv(_)))
         }
       }.toSet
+    }
+  }
+
+  object Oh {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
+
+    def apply(entries: Set[Logic]): Logic = Or {
+      require(entries.size >= 2)
+      entries.map { hot =>
+        And((entries - hot).map(Inv(_)) + hot)
+      }
     }
   }
 

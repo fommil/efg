@@ -98,20 +98,17 @@ class LogicTest extends Test {
     assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXNOR)
   }
 
-  // def testOH: Unit = {
-  //   val node2 = Or(
-  //     And(Inv(In(0)), In(1)),
-  //     And(In(0), Inv(In(1))),
-  //   )
-  //   assertEquals(Set(In(0), In(1)), node2.asOH)
+  def testOH: Unit = {
+    val node3 = Or(
+      And(Inv(In(0)), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), Inv(In(2))),
+    )
+    assertEquals(Set(In(0), In(1), In(2)), node3.asOH)
 
-  //   val node3 = Or(
-  //     And(Inv(In(0)), Inv(In(1)), In(2)),
-  //     And(Inv(In(0)), In(1), Inv(In(2))),
-  //     And(In(0), Inv(In(1)), Inv(In(2))),
-  //   )
-  //   assertEquals(Set(In(0), In(1), In(2)), node3.asOH)
-  // }
+    val flipped3 = Oh(In(0), In(1), Inv(In(2)))
+    assertEquals(Set(In(0), In(1), Inv(In(2))), flipped3.asOH)
+  }
 
   // def testNOH: Unit = {
   //   val node2 = Or(
