@@ -16,13 +16,7 @@ class DtlTest extends Test {
   val I2 = REF(2)
 
   def testXOR: Unit = {
-    val xor3 = Or(
-      And(Inv(i0), Inv(i1), i2), // x' y' z
-      And(Inv(i0), i1, Inv(i2)), // x' y  z'
-      And(i0, Inv(i1), Inv(i2)), // x  y' z'
-      And(i0, i1, i2),           // x  y  z
-    )
-
+    val xor3 = Xor(i0, i1, i2)
     assertEquals(
       XOR(I0, I1, I2),
       DTL.materialise(xor3)

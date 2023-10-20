@@ -28,7 +28,12 @@
 // verilog syntax) variants, and is free to rewrite the latter into gate level
 // cells. The gate level cells are 1 bit binary operations, but the high level
 // variants support multi-bit. $reduce_and and $reduce_or are roughly the
-// multi-arity versions of AND and OR that we would care about.
+// multi-arity versions of AND and OR that we would care about (although the
+// docs also say that the reduce_ variants are unary cells, so it's still all a
+// bit unclear).
+//
+// Note that there is no "one hot" or "not one hot" in the standard cell
+// library.
 //
 // We can also produce netlists that use non-standard cells by provide custom
 // skins, but be aware that yosys will not be able to understand them. For
@@ -129,7 +134,13 @@ object Netlist {
     // all nodes are single output, so we can assign each node an index which
     // will be the connection identifier for its output.
 
-    val lookup = outputs.values.flatMap(_.nodes).toSet.zipWithIndex.toMap
+    // OneHot is not supported by the std cell library, so we need to convert
+    val outputs_ = outputs.map {
+      case (n, x: OneHot) => n -> x.asCore
+      case other => other
+    }
+
+    val lookup = outputs_.values.flatMap(_.nodes).toSet.zipWithIndex.toMap
     def con(node: Logic): Connection = node match {
       case True => Literal("1")
       case Inv(True) => Literal("0")
@@ -144,6 +155,7 @@ object Netlist {
       }
     }.partitionMap {
       case (True, _) => impossible
+      case (_: OneHot, _) => impossible
       case (n: Inv, y) => Right { s"Inv$$$y" ->
         Cell("$_NOT_", Map.empty, Map("A" -> "input", "Y" -> "output"),
           Map("A" -> List(con(n.entry)), "Y" -> List(y)))
@@ -166,10 +178,19 @@ object Netlist {
           Cell("$reduce_or", Map.empty, Map("A" -> "input", "Y" -> "output"),
             Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
       }}
+      case (n: Xor, y) => Right { s"Xor$$$y" -> {
+        if (n.entries.size == 2) {
+          val es = n.entries.toList.map(con(_))
+          Cell("$_XOR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
+            Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
+        } else
+          Cell("$reduce_xor", Map.empty, Map("A" -> "input", "Y" -> "output"),
+            Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+      }}
       case (n: In, y) => Left { names(n) -> Port("input", List(y)) }
     }
 
-    val signals = outputs.map {
+    val signals = outputs_.map {
       case (n, node) => n -> Port("output", List(con(node)))
     }
 

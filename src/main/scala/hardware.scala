@@ -65,6 +65,8 @@ object Hardware {
 
       case Inv(e) => materialise(e) match {
         case OR(es) if es.size < 4 => NOR(es)
+        // forcing an inversion here reduces the ability to share nodes, so
+        // should probably be done at the Logic level.
         case XOR(es) => XNOR(es)
         case XNOR(es) => XOR(es)
         case OH(es) => NOH(es)
@@ -73,20 +75,10 @@ object Hardware {
       }
 
       case And(es) => AND(es.map(materialise(_)))
+      case Or(es) => OR(es.map(materialise(_)))
 
-      case e@ Or(es) =>
-        val xor = e.asXOR
-        // lazy val noh = e.asNOH
-        // lazy val oh = e.asOH
-        // lazy val xnor = e.asXNOR
-        // it's not clear which gate is more efficient in the general case when
-        // multiple are possible so the ordering here is just a rule of thumb.
-        // (they only collide for 2 entries).
-        if (xor.nonEmpty) XOR(xor.map(materialise(_)))
-        // else if (xnor.nonEmpty) XNOR(xnor.map(materialise(_)))
-        // else if (noh.nonEmpty) NOH(noh.map(materialise(_)))
-        // else if (oh.nonEmpty) OH(oh.map(materialise(_)))
-        else OR(es.map(materialise(_)))
+      case Xor(es) => XOR(es.map(materialise(_)))
+      case OneHot(es) => OH(es.map(materialise(_)))
     }
 
     def fanout(circuits: Set[DTL]): Map[DTL, Int] = {

@@ -43,86 +43,81 @@ object LogicGen {
     case Inv(e) => e :: Nil
     case And(entries) => Shrink.set(shrinker.shrink)(entries).map(And(_))
     case Or(entries) => Shrink.set(shrinker.shrink)(entries).map(Or(_))
+    case Xor(entries) => Shrink.set(shrinker.shrink)(entries).map(Xor(_))
+    case OneHot(entries) => Shrink.set(shrinker.shrink)(entries).map(OneHot(_))
   }
 }
 
 class LogicTest extends Test {
 
   def testXOR: Unit = {
-    val node2 = Or(
+    val or2 = Or(
       And(Inv(In(0)), In(1)),
       And(In(0), Inv(In(1))),
     )
-    assertEquals(node2, Xor(In(0), In(1)))
-    assertEquals(Set(In(0), In(1)), node2.asXOR)
+    val xor2 = new Xor(Set(In(0), In(1)))
+    assertEquals(or2, xor2.asCore)
+    assertEquals(Some(xor2), Xor.from(or2))
 
-    val node3 = Or(
+    val or3 = Or(
       And(Inv(In(0)), Inv(In(1)), In(2)),
       And(Inv(In(0)), In(1), Inv(In(2))),
       And(In(0), Inv(In(1)), Inv(In(2))),
       And(In(0), In(1), In(2)),
     )
-    assertEquals(node3, Xor(In(0), In(1), In(2)))
-    assertEquals(Set(In(0), In(1), In(2)), node3.asXOR)
+    val xor3 = new Xor(Set(In(0), In(1), In(2)))
 
-    // this is also XNOR on 0,1
-    val flipped2 = Xor(In(0), Inv(In(1)))
-    // note the basis gets flipped, allowed by the laws!
-    assertEquals(Set(Inv(In(0)), In(1)), flipped2.asXOR)
-
-    val flipped3 = Xor(In(0), In(1), Inv(In(2)))
-    // and again, they get flipped... there's no way to reconstruct the original
-    assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXOR)
+    assertEquals(or3, xor3.asCore)
+    assertEquals(Some(xor3), Xor.from(or3))
   }
 
-  def testXNOR: Unit = {
-    val node2 = Or(
-      And(Inv(In(0)), Inv(In(1))),
-      And(In(0), In(1)),
-    )
-    assertEquals(Set(In(0), In(1)), node2.asXNOR)
+  // def testXNOR: Unit = {
+  //   val node2 = Or(
+  //     And(Inv(In(0)), Inv(In(1))),
+  //     And(In(0), In(1)),
+  //   )
+  //   assertEquals(Set(In(0), In(1)), node2.asXNOR)
 
-    val node3 = Or(
-      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-      And(In(0), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), In(2)),
-    )
-    assertEquals(Set(In(0), In(1), In(2)), node3.asXNOR)
+  //   val node3 = Or(
+  //     And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+  //     And(In(0), In(1), Inv(In(2))),
+  //     And(In(0), Inv(In(1)), In(2)),
+  //     And(Inv(In(0)), In(1), In(2)),
+  //   )
+  //   assertEquals(Set(In(0), In(1), In(2)), node3.asXNOR)
 
-    // like with XOR we can't recover the original input normalizations...
-    val flipped2 = Xnor(In(0), Inv(In(1)))
-    assertEquals(Set(Inv(In(0)), In(1)), flipped2.asXNOR)
+  //   // like with XOR we can't recover the original input normalizations...
+  //   val flipped2 = Xnor(In(0), Inv(In(1)))
+  //   assertEquals(Set(Inv(In(0)), In(1)), flipped2.asXNOR)
 
-    val flipped3 = Xnor(In(0), In(1), Inv(In(2)))
-    assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXNOR)
-  }
+  //   val flipped3 = Xnor(In(0), In(1), Inv(In(2)))
+  //   assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXNOR)
+  // }
 
   def testOH: Unit = {
-    val node3 = Or(
+    val or3 = Or(
       And(Inv(In(0)), Inv(In(1)), In(2)),
       And(Inv(In(0)), In(1), Inv(In(2))),
       And(In(0), Inv(In(1)), Inv(In(2))),
     )
-    assertEquals(Set(In(0), In(1), In(2)), node3.asOH)
-
-    val flipped3 = Oh(In(0), In(1), Inv(In(2)))
-    assertEquals(Set(In(0), In(1), Inv(In(2))), flipped3.asOH)
+    val oh3 = new OneHot(Set(In(0), In(1), In(2)))
+    assertEquals(or3, oh3.asCore)
+    assertEquals(Some(oh3), OneHot.from(or3))
   }
 
-  def testNOH: Unit = {
-    val node3 = Or(
-      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-      And(In(0), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), In(2)),
-      And(In(0), In(1), In(2)),
-    )
-    assertEquals(Set(In(0), In(1), In(2)), node3.asNOH)
+  // def testNOH: Unit = {
+  //   val node3 = Or(
+  //     And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+  //     And(In(0), In(1), Inv(In(2))),
+  //     And(In(0), Inv(In(1)), In(2)),
+  //     And(Inv(In(0)), In(1), In(2)),
+  //     And(In(0), In(1), In(2)),
+  //   )
+  //   assertEquals(Set(In(0), In(1), In(2)), node3.asNOH)
 
-    val flipped3 = Noh(In(0), In(1), Inv(In(2)))
-    assertEquals(Set(In(0), In(1), Inv(In(2))), flipped3.asNOH)
-  }
+  //   val flipped3 = Noh(In(0), In(1), Inv(In(2)))
+  //   assertEquals(Set(In(0), In(1), Inv(In(2))), flipped3.asNOH)
+  // }
 
   def assertLocalRule(rule: LocalRule, ast: Logic): Unit = {
     val high_ = ast.nodes.collect { case In(i) => i }.maxOption

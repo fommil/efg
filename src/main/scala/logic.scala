@@ -74,6 +74,22 @@ object LocalRule {
         if (nested.isEmpty) Nil
         else List(Or(nested.flatten ++ other))
 
+      case Xor(entries) =>
+        val (nested, other) = entries.partitionMap {
+          case Xor(es) => Left(es)
+          case es => Right(es)
+        }
+        if (nested.isEmpty) Nil
+        else List(Xor(nested.flatten ++ other))
+
+      case OneHot(entries) =>
+        val (nested, other) = entries.partitionMap {
+          case OneHot(es) => Left(es)
+          case es => Right(es)
+        }
+        if (nested.isEmpty) Nil
+        else List(OneHot(nested.flatten ++ other))
+
       case _ => Nil
     }
   }
@@ -115,29 +131,26 @@ object LocalRule {
   object Split extends LocalRule {
     override def name: String = "split"
 
-    private def isGate(n: Logic): Boolean =
-      n.asXOR.nonEmpty || n.asXNOR.nonEmpty || n.asOH.nonEmpty || n.asNOH.nonEmpty
-
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
         (2 to (es.size + 1) / 2).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
-            if (isGate(n)) Some(new Or(es.diff(sub) + n)) else None
-          }
-        }
-
-      case And(es) if es.size > 2 =>
-        (2 to (es.size + 1) / 2).toList.flatMap { i =>
-          es.subsets(i).flatMap { sub =>
-            val n = new And(sub)
-            if (isGate(n)) Some(new And(es.diff(sub) + n)) else None
+            List(
+              Xor.from(n),
+              // Xnor.from(n),
+              OneHot.from(n),
+              // NotOneHot.from(n)
+            ).flatten
           }
         }
 
       case _ => Nil
     }
   }
+
+  // TODO XNOR into Inv(Xor), NOH into Inv(OH)
+  // TODO cycle the inversion of inputs to special gates
 
   // Eliminate by absorption
   //
@@ -380,15 +393,15 @@ object GlobalRule {
     // between the components.
     private def xors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val xors = circuits.flatMap { circuit =>
-        circuit.nodes.filter(_.asXOR.nonEmpty)
+        circuit.nodes.collect { case e: Xor => e }
       }
 
       for {
         left <- xors
         right <- xors
         if left != right
-        left_ = left.asXOR
-        right_ = right.asXOR
+        left_ = left.entries
+        right_ = right.entries
         subset = left_.intersect(right_)
         if subset.size > 1 && left_.size > subset.size
       } yield {
@@ -398,7 +411,7 @@ object GlobalRule {
   }
 
   // this detects when an OR can be expanded because it would allow its
-  // XOR component to be shared.
+  // XOR component to be shared with an existing XOR gate.
   //
   // a + b = a.b' + a'.b + a.b
   object SharedOrXor extends GlobalRule {
@@ -409,16 +422,16 @@ object GlobalRule {
 
     private def xors_ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
       val ors = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: Or if e.asXOR.isEmpty => e }
+        circuit.nodes.collect { case e: Or => e }
       }
       val xors = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: Or if e.asXOR.nonEmpty => e }
+        circuit.nodes.collect { case e: Xor => e }
       }
       for {
         left <- ors
         right <- xors
         left_ = left.entries
-        right_ = right.asXOR
+        right_ = right.entries
         subset = left_.intersect(right_)
         if subset.size >= 2
       } yield {
@@ -451,17 +464,17 @@ sealed trait Logic { self =>
       val parts = entries.map(_.render(!nested, false))
       if (ands) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
+    case Xor(entries) =>
+      val parts = entries.map(_.render(true, false))
+      if (ands) parts.mkString(" ⊕ ")
+      else parts.mkString("(", " ⊕ ", ")")
+    case OneHot(entries) =>
+      val parts = entries.map(_.render(true, false))
+      if (ands) parts.mkString(" Δ ")
+      else parts.mkString("(", " Δ ", ")")
   }
   final def render: String = render(true, true)
   override final def toString: String = render
-
-  final def size: Int = self match {
-    case True => 1
-    case _: In => 1
-    case Inv(e) => 1 + e.size
-    case And(es) => 1 + es.map(_.size).sum
-    case Or(es) => 1 + es.map(_.size).sum
-  }
 
   final def eval(input: BitSet): Boolean = self match {
     case True => true
@@ -469,6 +482,8 @@ sealed trait Logic { self =>
     case Inv(e) => !e.eval(input)
     case And(as) => as.forall(_.eval(input))
     case Or(os) => os.exists(_.eval(input))
+    case Xor(es) => es.count(_.eval(input)) % 2 == 1
+    case OneHot(es) => es.count(_.eval(input)) == 1
   }
 
   // Replace every node that is equal to the target, recursing into children.
@@ -502,6 +517,12 @@ sealed trait Logic { self =>
         case Or(entries) =>
           replace_(entries)(es => Or(es.toSet))
 
+        case Xor(entries) =>
+          replace_(entries)(es => Xor(es.toSet))
+
+        case OneHot(entries) =>
+          replace_(entries)(es => OneHot(es.toSet))
+
         case _: In => self
       }
   }
@@ -513,150 +534,9 @@ sealed trait Logic { self =>
       case Inv(a) => a.nodes + self
       case And(es) => es.flatMap(_.nodes) + self
       case Or(es) => es.flatMap(_.nodes) + self
+      case Xor(es) => es.flatMap(_.nodes) + self
+      case OneHot(es) => es.flatMap(_.nodes) + self
     }
-  }
-
-  // the following as* methods return the parameters of the indicated gate if
-  // this node can be represented by that gate. This is important for both rule
-  // application and hardware dependent materialisation stages. A logic node may
-  // be represented by multiple gates, e.g. XOR is the same as OH for 2 inputs.
-  //
-  // nested logic is NOT considered.
-  //
-  // TODO XOR/XNOR/OH/NOH into AST
-  // XOR/XNOR can have their inputs rotated, it would be interesting to have
-  // rules that explore that space, but it would involve a refactor as we don't
-  // preserve that kind of information in the AST which would presumably need to
-  // be expanded to include XOR/NOR/OH/NOH etc.
-  //
-  // there's a lot of duplication between these as* convertors so it would be
-  // beneficial to performance to do all the work once.
-
-  // x ⊕ y = (x' · y) + (x · y')
-  //
-  // extending to n-arity matches all odd parities.
-  lazy val asXOR: Set[Logic] = asXOR_
-  private def asXOR_ : Set[Logic] = this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asXNOR
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val (invalid, terms) = es.partitionMap {
-        case And(es_) => Right(es_)
-        case other => Left(other)
-      }
-      val comps = terms.flatten
-      val norms = comps.map {
-        case Inv(e) => e
-        case e => e
-      }
-
-      // some properties of XOR:
-      //
-      // - every term has the same number of components.
-      // - every component, and its inverse, appears an equal number of times.
-      // - the number of terms is the number of ways to get odd parity.
-      //
-      // This enables early exit when detecting XOR gates but makes it hard to
-      // find the correct normalisation for each input due to
-      //
-      //   XOR(a, b', c) != XOR(a, b, c) [in general, with exceptions]
-      //
-      // To find the correct input basis, we must consider every combination
-      // (although it's probably possible to prune the set due to parity).
-      if (invalid.nonEmpty || norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
-        return Set.empty
-
-      (0 to norms.size).reverse.foreach { i =>
-        // subsets(0) gives an empty set allowing for all flipped
-        norms.subsets(i).foreach { ss =>
-          val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
-          if (Xor(inputs) == this) return inputs
-        }
-      }
-      Set.empty
-  }
-
-  // x ⊙ y = (x · y) + (x' · y')
-  lazy val asXNOR: Set[Logic] = asXNOR_
-  private def asXNOR_ : Set[Logic] = this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asXOR
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val (invalid, terms) = es.partitionMap {
-        case And(es_) => Right(es_)
-        case other => Left(other)
-      }
-      val comps = terms.flatten
-      val norms = comps.map {
-        case Inv(e) => e
-        case e => e
-      }
-
-      // XNOR has roughly the same properties as XOR
-      if (invalid.nonEmpty || norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
-        return Set.empty
-
-      (0 to norms.size).reverse.foreach { i =>
-        // subsets(0) gives an empty set allowing for all flipped
-        norms.subsets(i).foreach { ss =>
-          val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
-          if (Xnor(inputs) == this) return inputs
-        }
-      }
-      Set.empty
-  }
-
-  lazy val asOH: Set[Logic] = asOH_
-  private def asOH_ : Set[Logic] = this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asNOH
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val (invalid, terms) = es.toList.partitionMap {
-        case And(es_) => Right(es_.toList)
-        case other => Left(other)
-      }
-      val widths = terms.map(_.size).toSet
-      val counts = terms.flatten.counts
-
-      if (invalid.nonEmpty || widths.size != 1 || widths.head < 3 || counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
-        return Set.empty
-
-      // unlike XOR/XNOR we can actually recover the inversion of the inputs
-      // because they do not appear in equal measure.
-      val inputs = counts.groupBy(_._2).minBy(_._1)._2.keySet
-
-      if (Oh(inputs) == this) inputs
-      else Set.empty
-  }
-
-  lazy val asNOH: Set[Logic] = asNOH_
-  private def asNOH_ : Set[Logic] = this match {
-    case True => Set.empty
-    case In(_) => Set.empty
-    case Inv(e) => e.asOH
-    case And(_) => Set.empty // reachable by DeMorgan
-    case Or(es) =>
-      val (invalid, terms) = es.toList.partitionMap {
-        case And(es_) => Right(es_.toList)
-        case other => Left(other)
-      }
-      val widths = terms.map(_.size).toSet
-      val counts = terms.flatten.counts
-
-      if (invalid.nonEmpty || widths.size != 1 || widths.head < 3 || counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
-        return Set.empty
-
-      // the opposite of OH...
-      val inputs = counts.groupBy(_._2).maxBy(_._1)._2.keySet
-
-      if (Noh(inputs) == this) inputs
-      else Set.empty
   }
 }
 object Logic {
@@ -673,7 +553,7 @@ object Logic {
   // constructor enforces identity A . 1 = A
   // constructor enforces complementation A . A' = 0
   case class And private[logic](entries: Set[Logic]) extends Logic {
-    override val hashCode: Int = entries.hashCode
+    override val hashCode: Int = 19 * entries.hashCode
     override def equals(that: Any): Boolean = that match {
       case thon: And => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
       case _ => false
@@ -684,7 +564,7 @@ object Logic {
   // constructor enforces identity A + 0 = A
   // constructor enforces complementation A + A' = 1
   case class Or  private[logic](entries: Set[Logic]) extends Logic {
-    override val hashCode: Int = entries.hashCode
+    override val hashCode: Int = 23 * entries.hashCode
     override def equals(that: Any): Boolean = that match {
       case thon: Or => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
       case _ => false
@@ -695,6 +575,86 @@ object Logic {
 
   // a placemarker (along with Inv(True)) for nodes that can be collapsed
   case object True extends Logic
+
+  // XOR/XNOR/OH/NOH may seem like unusual entries in the AST because they are
+  // just special forms of OR. However, it's necessary to encode the special
+  // form this way to avoid carrying it as metadata, plus there is ambiguity in
+  // the inversion of inputs when written in the OR form. Ideally we'd have a
+  // "core" AST and an "extended" one, but since we have very little use for the
+  // core AST, we only use this extended one.
+
+  // x ⊕ y = (x' · y) + (x · y')
+  //
+  // extending to n-arity matches all odd parities
+  case class Xor private[logic](entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = 29 * entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: Xor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
+
+    def asCore: Logic = Or {
+      (1 to entries.size by 2).flatMap { i: Int =>
+        entries.subsets(i).map { odd =>
+          And(odd ++ entries.diff(odd).map(Inv(_)))
+        }
+      }.toSet
+    }
+  }
+
+  // // x ⊙ y = (x · y) + (x' · y')
+  // //
+  // // higher arity counts even parity (in the sense that it is "not odd").
+  // case class Xnor private[logic](entries: Set[Logic]) extends Logic {
+  //   override val hashCode: Int = 31 * entries.hashCode
+  //   override def equals(that: Any): Boolean = that match {
+  //     case thon: Xnor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+  //     case _ => false
+  //   }
+  //   def asCore: Logic = Or {
+  //     (0 to entries.size by 2).flatMap { i: Int =>
+  //       entries.subsets(i).map { even =>
+  //         And(even ++ entries.diff(even).map(Inv(_)))
+  //       }
+  //     }.toSet
+  //   }
+  // }
+
+  // OH / NOH might be an over-reach of the AST... they can be fully represented
+  // by OR/AND. and it makes us wonder if we should also have NAND / NOR / etc
+  // since it allows us to optimise sharing of such nodes and their inverted
+  // form at the logic level (not hardware).
+
+  // "one hot" means exactly one of the inputs is high, and the rest are low.
+  case class OneHot private[logic](entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = 37 * entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: OneHot => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
+
+    def asCore: Logic = Or {
+      entries.map { hot => And((entries - hot).map(Inv(_)) + hot) }
+    }
+  }
+
+  // // negation of "one hot"
+  // case class NotOneHot private[logic](entries: Set[Logic]) extends Logic {
+  //   override val hashCode: Int = 41 * entries.hashCode
+  //   override def equals(that: Any): Boolean = that match {
+  //     case thon: NotOneHot => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+  //     case _ => false
+  //   }
+  //   def asCore: Logic = Or {
+  //     val entries_ = entries.map(Inv(_))
+  //
+  //     (2 to entries_.size).toSet.flatMap { i: Int =>
+  //       entries_.subsets(i).map { subs =>
+  //         And(subs.map(Inv(_)) ++ entries_.diff(subs))
+  //       }.toSet
+  //     } + And(entries_)
+  //   }
+  // }
 
   object Inv {
     private val False = new Inv(True)
@@ -758,85 +718,194 @@ object Logic {
     }
   }
 
-  // a constructor around Or
   object Xor {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
-    def apply(entries: Set[Logic]): Logic = Or {
-      require(entries.size >= 2)
-      (1 to entries.size by 2).flatMap { i: Int =>
-        entries.subsets(i).map { odd =>
-          And(odd ++ entries.diff(odd).map(Inv(_)))
-        }
-      }.toSet
-    }
-  }
-
-  object Xnor {
-    def apply(head: Logic, tail: Logic*): Logic =
-      apply(tail.toSet + head)
-
-    def apply(entries: Set[Logic]): Logic = Or {
-      require(entries.size >= 2)
-      (0 to entries.size by 2).flatMap { i: Int =>
-        entries.subsets(i).map { even =>
-          And(even ++ entries.diff(even).map(Inv(_)))
-        }
-      }.toSet
-    }
-  }
-
-  object Oh {
-    def apply(head: Logic, tail: Logic*): Logic =
-      apply(tail.toSet + head)
-
-    def apply(entries: Set[Logic]): Logic = Or {
-      require(entries.size > 2)
-      entries.map { hot =>
-        And((entries - hot).map(Inv(_)) + hot)
+    def apply(entries: Set[Logic]): Logic = {
+      require(entries.nonEmpty)
+      if (entries.size == 1) entries.head
+      else {
+        require_normed(entries)
+        new Xor(entries)
       }
     }
+
+    // note that Xor(Xor(inputs).asCore) is not true in general, as inputs may
+    // be inverted in pairs.
+    def from(node: Logic): Option[Logic] = node match {
+      // case Inv(Xnor(es)) => Some(new Xor(es))
+      case Or(es) =>
+        val (invalid, terms) = es.partitionMap {
+          case And(es_) => Right(es_)
+          case other => Left(other)
+        }
+        if (invalid.nonEmpty)
+          return None
+
+        val comps = terms.flatten
+        val norms = comps.map {
+          case Inv(e) => e
+          case e => e
+        }
+
+        // - every term has the same number of components.
+        // - every component, and its inverse, appears an equal number of times.
+        // - the number of terms is the number of ways to get odd parity TODO (precalculated)
+        if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
+          return None
+
+        // this search is redundant leading to bad performance for negatives,
+        // but is still efficient for positives. We could prune all permutations
+        // of inputs where an even number of inputs have been inverted, but
+        // that's not free.
+        (0 to norms.size).reverse.foreach { i =>
+          // subsets(0) gives an empty set allowing for all flipped
+          norms.subsets(i).foreach { ss =>
+            val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
+            val xor = new Xor(inputs)
+            if (xor.asCore == node) return Some(xor)
+          }
+        }
+        None
+
+      case _ => None
+    }
   }
 
-  object Noh {
+  // object Xnor {
+  //   def apply(head: Logic, tail: Logic*): Logic =
+  //     apply(tail.toSet + head)
+  //
+  //   def apply(entries: Set[Logic]): Logic = {
+  //     require(entries.nonEmpty)
+  //     if (entries.size == 1) entries.head
+  //     else {
+  //       require_normed(entries)
+  //       new Xnor(entries)
+  //     }
+  //   }
+  //
+  //   def from(node: Logic): Option[Logic] = node match {
+  //     case Inv(Xor(es)) => Some(new Xnor(es))
+  //     case Or(es) =>
+  //       val (invalid, terms) = es.partitionMap {
+  //         case And(es_) => Right(es_)
+  //         case other => Left(other)
+  //       }
+  //       if (invalid.nonEmpty)
+  //         return None
+  //       val comps = terms.flatten
+  //       val norms = comps.map {
+  //         case Inv(e) => e
+  //         case e => e
+  //       }
+  //
+  //       // XNOR has roughly the same properties as XOR
+  //       if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
+  //         return None
+  //
+  //       (0 to norms.size).reverse.foreach { i =>
+  //         // subsets(0) gives an empty set allowing for all flipped
+  //         norms.subsets(i).foreach { ss =>
+  //           val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
+  //           val xnor = new Xnor(inputs)
+  //           if (xnor.asCore == node) return Some(xnor)
+  //         }
+  //       }
+  //       None
+  //     case _ => None
+  //   }
+  // }
+
+  object OneHot {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
-    def apply(entries: Set[Logic]): Logic = Or {
-      require(entries.size > 2)
-      val entries_ = entries.map(Inv(_))
-      (2 to entries_.size).toSet.flatMap { i: Int =>
-        entries_.subsets(i).map { subs =>
-          And(subs.map(Inv(_)) ++ (entries_.diff(subs)))
-        }.toSet
-      } + And(entries_)
+    def apply(entries: Set[Logic]): Logic = {
+      if (entries.size < 3) Xor(entries)
+      else {
+        require_normed(entries)
+        new OneHot(entries)
+      }
+    }
+
+    def from(node: Logic): Option[Logic] = node match {
+      // case Inv(NotOneHot(es)) => Some(new OneHot(es))
+      case Or(es) =>
+        val (invalid, terms) = es.toList.partitionMap {
+          case And(es_) => Right(es_.toList)
+          case other => Left(other)
+        }
+        if (invalid.nonEmpty) return None
+
+        val widths = terms.map(_.size).toSet
+        if (widths.size != 1 || widths.head < 3) return None
+
+        val counts = terms.flatten.counts
+        if (counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
+          return None
+
+        val inputs = counts.groupBy(_._2).minBy(_._1)._2.keySet
+        val oh = new OneHot(inputs)
+
+        if (oh.asCore == node) Some(oh)
+        else None
+
+      case _ => None
     }
   }
+
+  // object NotOneHot {
+  //   def apply(head: Logic, tail: Logic*): Logic =
+  //     apply(tail.toSet + head)
+  //
+  //   def apply(entries: Set[Logic]): Logic = {
+  //     require(entries.nonEmpty)
+  //     if (entries.size < 3) Xnor(entries)
+  //     else {
+  //       require_normed(entries)
+  //       new NotOneHot(entries)
+  //     }
+  //   }
+  //
+  //   def from(node: Logic): Option[Logic] = node match {
+  //     case Inv(OneHot(es)) => Some(new NotOneHot(es))
+  //     case Or(es) =>
+  //       val (invalid, terms) = es.toList.partitionMap {
+  //         case And(es_) => Right(es_.toList)
+  //         case other => Left(other)
+  //       }
+  //       if (invalid.nonEmpty) return None
+  //
+  //       val widths = terms.map(_.size).toSet
+  //       if (widths.size != 1 || widths.head < 3) return None
+  //
+  //       val counts = terms.flatten.counts
+  //       if (counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
+  //         return None
+  //
+  //       // the opposite of OH...
+  //       val inputs = counts.groupBy(_._2).maxBy(_._1)._2.keySet
+  //       val noh = new NotOneHot(inputs)
+  //
+  //       if (noh.asCore == node) Some(noh)
+  //       else None
+  //
+  //     case _ => None
+  //   }
+  // }
 
   object In {
 
   }
 
-  def fanout(circuits: Set[Logic]): Map[Logic, Int] = {
-    def fanout_seq(acc: Map[Logic, Int], els: Set[Logic]) =
-      els.foldLeft(acc) { case (acc_, e) => fanout_(acc_, e)}
-
-    def fanout_(acc: Map[Logic, Int], c: Logic): Map[Logic, Int] = {
-      val acc_ = acc.incr(c)
-      if (acc.contains(c)) acc_
-      else c match {
-        case True => acc_
-        case In(_)  => acc_
-        case Inv(e)  => fanout_seq(acc_, Set(e))
-        case And(es) => fanout_seq(acc_, es)
-        case Or(es) => fanout_seq(acc_, es)
-      }
+  private def require_normed(entries: Set[Logic]): Unit = {
+    val normed = entries.map {
+      case Inv(e) => e
+      case e => e
     }
-
-    circuits.foldLeft(Map.empty[Logic, Int]) {
-      case (acc, c) => fanout_(acc, c)
-    }
+    require(normed.size == entries.size)
   }
 }
 
