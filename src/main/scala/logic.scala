@@ -116,7 +116,7 @@ object LocalRule {
     override def name: String = "split"
 
     private def isGate(n: Logic): Boolean =
-      n.asXOR.nonEmpty || n.asXNOR.nonEmpty || n.asOH.nonEmpty // || n.asNOH.nonEmpty
+      n.asXOR.nonEmpty || n.asXNOR.nonEmpty || n.asOH.nonEmpty || n.asNOH.nonEmpty
 
     override def perform(node: Logic): List[Logic] = node match {
       case Or(es) if es.size > 2 =>
@@ -523,6 +523,7 @@ sealed trait Logic { self =>
   //
   // nested logic is NOT considered.
   //
+  // TODO XOR/XNOR/OH/NOH into AST
   // XOR/XNOR can have their inputs rotated, it would be interesting to have
   // rules that explore that space, but it would involve a refactor as we don't
   // preserve that kind of information in the AST which would presumably need to
@@ -613,7 +614,7 @@ sealed trait Logic { self =>
   private def asOH_ : Set[Logic] = this match {
     case True => Set.empty
     case In(_) => Set.empty
-    case Inv(e) => Set.empty // TODO e.asNOH
+    case Inv(e) => e.asNOH
     case And(_) => Set.empty // reachable by DeMorgan
     case Or(es) =>
       val (invalid, terms) = es.toList.partitionMap {
@@ -634,25 +635,29 @@ sealed trait Logic { self =>
       else Set.empty
   }
 
-  // TODO rewrite and reinstate NOH
-  // lazy val asNOH: Set[Logic] =  this match {
-  //   case True => Set.empty
-  //   case In(_) => Set.empty
-  //   case Inv(e) => e.asOH
-  //   case And(_) => Set.empty // reachable by DeMorgan
-  //   case Or(es) =>
-  //     val abc = level2(es)
-  //     val abc_ = abc.map(Inv(_))
-  //     val expect_noh = (2 to abc_.size).toSet.flatMap { i: Int =>
-  //       abc_.subsets(i).map { subs =>
-  //         And(subs.map(Inv(_)) ++ (abc_.diff(subs)))
-  //       }.toSet
-  //     } + And(abc_)
+  lazy val asNOH: Set[Logic] = asNOH_
+  private def asNOH_ : Set[Logic] = this match {
+    case True => Set.empty
+    case In(_) => Set.empty
+    case Inv(e) => e.asOH
+    case And(_) => Set.empty // reachable by DeMorgan
+    case Or(es) =>
+      val (invalid, terms) = es.toList.partitionMap {
+        case And(es_) => Right(es_.toList)
+        case other => Left(other)
+      }
+      val widths = terms.map(_.size).toSet
+      val counts = terms.flatten.counts
 
-  //     if (es == expect_noh) abc
-  //     else Set.empty
-  // }
+      if (invalid.nonEmpty || widths.size != 1 || widths.head < 3 || counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
+        return Set.empty
 
+      // the opposite of OH...
+      val inputs = counts.groupBy(_._2).maxBy(_._1)._2.keySet
+
+      if (Noh(inputs) == this) inputs
+      else Set.empty
+  }
 }
 object Logic {
   // constructor enforces involution: (A')' = A
@@ -787,10 +792,25 @@ object Logic {
       apply(tail.toSet + head)
 
     def apply(entries: Set[Logic]): Logic = Or {
-      require(entries.size >= 2)
+      require(entries.size > 2)
       entries.map { hot =>
         And((entries - hot).map(Inv(_)) + hot)
       }
+    }
+  }
+
+  object Noh {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
+
+    def apply(entries: Set[Logic]): Logic = Or {
+      require(entries.size > 2)
+      val entries_ = entries.map(Inv(_))
+      (2 to entries_.size).toSet.flatMap { i: Int =>
+        entries_.subsets(i).map { subs =>
+          And(subs.map(Inv(_)) ++ (entries_.diff(subs)))
+        }.toSet
+      } + And(entries_)
     }
   }
 
