@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "tableV.truth (12.0)" : {
+    "tableV.truth (14.25)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",

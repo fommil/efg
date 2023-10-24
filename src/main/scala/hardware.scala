@@ -62,21 +62,9 @@ object Hardware {
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
       case In(i) => REF(i)
-
-      case Inv(e) => materialise(e) match {
-        case OR(es) if es.size < 4 => NOR(es)
-        // forcing an inversion here reduces the ability to share nodes, so
-        // should probably be done at the Logic level.
-        case XOR(es) => XNOR(es)
-        case XNOR(es) => XOR(es)
-        case OH(es) => NOH(es)
-        case NOH(es) => OH(es)
-        case other => NOT(other)
-      }
-
+      case Inv(e) => NOT(materialise(e))
       case And(es) => AND(es.map(materialise(_)))
       case Or(es) => OR(es.map(materialise(_)))
-
       case Xor(es) => XOR(es.map(materialise(_)))
       case OneHot(es) => OH(es.map(materialise(_)))
     }

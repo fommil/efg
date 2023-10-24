@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "tableVIII.truth (6.5)" : {
+    "tableVIII.truth (8.0)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",
