@@ -1,0 +1,54 @@
+{
+  "modules" : {
+    "circuit" : {
+      "ports" : {
+        "i0" : {
+          "direction" : "input",
+          "bits" : [0]
+        },
+        "i2" : {
+          "direction" : "input",
+          "bits" : [2]
+        },
+        "i1" : {
+          "direction" : "input",
+          "bits" : [3]
+        },
+        "o0" : {
+          "direction" : "output",
+          "bits" : [1]
+        }
+      },
+      "cells" : {
+        "And$1" : {
+          "type" : "$_AND_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [4],
+            "B" : [2],
+            "Y" : [1]
+          }
+        },
+        "Xor$4" : {
+          "type" : "$_XOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [0],
+            "B" : [3],
+            "Y" : [4]
+          }
+        }
+      }
+    }
+  }
+}

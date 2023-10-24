@@ -1,0 +1,100 @@
+{
+  "modules" : {
+    "circuit" : {
+      "ports" : {
+        "A" : {
+          "direction" : "input",
+          "bits" : [0]
+        },
+        "Co" : {
+          "direction" : "output",
+          "bits" : [6]
+        },
+        "S" : {
+          "direction" : "output",
+          "bits" : [7]
+        },
+        "Ci" : {
+          "direction" : "input",
+          "bits" : [2]
+        },
+        "B" : {
+          "direction" : "input",
+          "bits" : [4]
+        }
+      },
+      "cells" : {
+        "Xor$7" : {
+          "type" : "$_XOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [4],
+            "B" : [3],
+            "Y" : [7]
+          }
+        },
+        "Xor$3" : {
+          "type" : "$_XOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [0],
+            "B" : [2],
+            "Y" : [3]
+          }
+        },
+        "And$5" : {
+          "type" : "$_AND_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [3],
+            "B" : [4],
+            "Y" : [5]
+          }
+        },
+        "And$1" : {
+          "type" : "$_AND_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [0],
+            "B" : [2],
+            "Y" : [1]
+          }
+        },
+        "Or$6" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [1],
+            "B" : [5],
+            "Y" : [6]
+          }
+        }
+      }
+    }
+  }
+}

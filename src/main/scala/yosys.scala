@@ -45,7 +45,6 @@ package yosys
 
 import scala.annotation.switch
 
-import fommil.util._
 import logic.Logic
 import logic.Logic._
 
@@ -134,14 +133,7 @@ object Netlist {
     // all nodes are single output, so we can assign each node an index which
     // will be the connection identifier for its output.
 
-    // OneHot is not supported by the std cell library, so we need to convert
-    // TODO can we use the "generic" node for this?
-    val outputs_ = outputs.map {
-      case (n, x: OneHot) => n -> x.asCore
-      case other => other
-    }
-
-    val lookup = outputs_.values.flatMap(_.nodes).toSet.zipWithIndex.toMap
+    val lookup = outputs.values.flatMap(_.nodes).toSet.zipWithIndex.toMap
     def con(node: Logic): Connection = node match {
       case True => Literal("1")
       case Inv(True) => Literal("0")
@@ -155,8 +147,15 @@ object Netlist {
         case ref => Some(node -> ref)
       }
     }.partitionMap {
-      case (True, _) => impossible
-      case (_: OneHot, _) => impossible
+      case (True, y) => Right { s"True$$$y" ->
+        Cell("$_constant_", Map("ref" -> "1"), Map("Y" -> "output"),
+          Map("Y" -> List(y)))
+      }
+      case (n: OneHot, y) => Right { s"OneHot$$$y" ->
+        Cell("generic", Map("ref" -> "OH"),
+          Map("in0" -> "input", "out0" -> "output"),
+          Map("in0" -> n.entries.map(con(_)).toList, "out0" -> List(y)))
+      }
       case (n: Inv, y) => Right { s"Inv$$$y" ->
         Cell("$_NOT_", Map.empty, Map("A" -> "input", "Y" -> "output"),
           Map("A" -> List(con(n.entry)), "Y" -> List(y)))
@@ -191,7 +190,7 @@ object Netlist {
       case (n: In, y) => Left { names(n) -> Port("input", List(y)) }
     }
 
-    val signals = outputs_.map {
+    val signals = outputs.map {
       case (n, node) => n -> Port("output", List(con(node)))
     }
 

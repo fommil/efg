@@ -1,0 +1,68 @@
+{
+  "modules" : {
+    "circuit" : {
+      "ports" : {
+        "i2" : {
+          "direction" : "input",
+          "bits" : [1]
+        },
+        "i1" : {
+          "direction" : "input",
+          "bits" : [3]
+        },
+        "i0" : {
+          "direction" : "input",
+          "bits" : [4]
+        },
+        "o0" : {
+          "direction" : "output",
+          "bits" : [0]
+        }
+      },
+      "cells" : {
+        "Or$0" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [2],
+            "B" : [5],
+            "Y" : [0]
+          }
+        },
+        "Xor$2" : {
+          "type" : "$_XOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [4],
+            "B" : [1],
+            "Y" : [2]
+          }
+        },
+        "Xor$5" : {
+          "type" : "$_XOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [3],
+            "B" : [1],
+            "Y" : [5]
+          }
+        }
+      }
+    }
+  }
+}

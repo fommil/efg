@@ -1,0 +1,262 @@
+{
+  "modules" : {
+    "circuit" : {
+      "ports" : {
+        "i0" : {
+          "direction" : "input",
+          "bits" : [7]
+        },
+        "i4" : {
+          "direction" : "input",
+          "bits" : [12]
+        },
+        "i3" : {
+          "direction" : "input",
+          "bits" : [21]
+        },
+        "i1" : {
+          "direction" : "input",
+          "bits" : [15]
+        },
+        "i2" : {
+          "direction" : "input",
+          "bits" : [13]
+        },
+        "o0" : {
+          "direction" : "output",
+          "bits" : [17]
+        }
+      },
+      "cells" : {
+        "And$3" : {
+          "type" : "$_AND_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [13],
+            "B" : [21],
+            "Y" : [3]
+          }
+        },
+        "Inv$0" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [7],
+            "Y" : [0]
+          }
+        },
+        "OneHot$1" : {
+          "type" : "generic",
+          "attributes" : {
+            "ref" : "OH"
+          },
+          "port_directions" : {
+            "in0" : "input",
+            "out0" : "output"
+          },
+          "connections" : {
+            "in0" : [12, 13, 21],
+            "out0" : [1]
+          }
+        },
+        "Inv$20" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [15],
+            "Y" : [20]
+          }
+        },
+        "Inv$8" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [5],
+            "Y" : [8]
+          }
+        },
+        "Inv$10" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [11],
+            "Y" : [10]
+          }
+        },
+        "Inv$16" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [2],
+            "Y" : [16]
+          }
+        },
+        "Inv$4" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [3],
+            "Y" : [4]
+          }
+        },
+        "Inv$19" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [9],
+            "Y" : [19]
+          }
+        },
+        "Or$5" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [7],
+            "B" : [12],
+            "Y" : [5]
+          }
+        },
+        "Inv$6" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [22],
+            "Y" : [6]
+          }
+        },
+        "Or$9" : {
+          "type" : "$reduce_or",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [7, 13, 21],
+            "Y" : [9]
+          }
+        },
+        "Or$18" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [10],
+            "B" : [1],
+            "Y" : [18]
+          }
+        },
+        "Or$11" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [4],
+            "B" : [7],
+            "Y" : [11]
+          }
+        },
+        "Or$22" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [14],
+            "B" : [20],
+            "Y" : [22]
+          }
+        },
+        "Or$2" : {
+          "type" : "$reduce_or",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [0, 4, 15],
+            "Y" : [2]
+          }
+        },
+        "Or$17" : {
+          "type" : "$reduce_or",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [19, 16, 8, 6],
+            "Y" : [17]
+          }
+        },
+        "Inv$14" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [18],
+            "Y" : [14]
+          }
+        }
+      }
+    }
+  }
+}
