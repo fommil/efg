@@ -35,7 +35,9 @@ import scala.collection.immutable.BitSet
 
 import fommil.cache._
 import fommil.util._
+import jzon.syntax._
 import mccluskey.McCluskey
+import yosys.Netlist
 
 import Logic._
 
@@ -950,10 +952,10 @@ object Main {
     // the list of rules and intermediate solutions is recorded to aid auditing.
     var all_my_circuits = minsums.asLogic.map { soln => soln -> (obj.measure(soln), List.empty[(Circuit, String, Double)]) }.toMap
 
-    def audit(circuit: Circuit): Unit = {
+    @unused def audit(circuit: Circuit): List[String] = {
       val history = all_my_circuits(circuit)
       val complete = (circuit, "final", history._1) :: history._2
-      System.out.println(complete.reverse.mkString("\n"))
+      complete.reverse.map(_.toString)
     }
 
     val ground_truth = all_my_circuits.head._1
@@ -1009,7 +1011,7 @@ object Main {
         local_rules.foreach { rule =>
           nodes.foreach { node =>
             rule.perform(node).foreach { repl =>
-              // System.out.println(s"replacing $node with $repl via $rule")
+              // System.err.println(s"replacing $node with $repl via $rule")
               val update = last_soln.map {
                 case (name, circuit) => name -> circuit.replace(node, repl)
               }
@@ -1029,22 +1031,31 @@ object Main {
 
       }
       step += 1
-      System.out.println(s"STEP=$step EXPLORED=${all_my_circuits.size}")
+      System.err.println(s"STEP=$step EXPLORED=${all_my_circuits.size}")
     }
 
     val soln = all_my_circuits.minBy(_._2._1)
-    val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
-    val shared = Hardware.DTL.fanout(impl.values.toSet).filter {
-      case (Hardware.DTL.REF(_), _) => false
-      case (_, out) => out > 1
-    }
 
-    System.out.println(s"optimised = $soln")
-    System.out.println(s"SHARED = $shared ")
-    audit(soln._1)
+    val names = minsums.input_names.zipWithIndex.map {
+      case (n, i) => In(i) -> n
+    }.toMap
+    val netlist = Netlist.from(
+      in.getName,
+      names,
+      soln._1
+    )
+    System.out.println(netlist.toJsonPretty)
+    System.out.flush()
 
-    // FIXME output the DTL circuit in yosys format
-    System.out.println(s"IMPL = $impl")
+    // val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
+    // val shared = Hardware.DTL.fanout(impl.values.toSet).filter {
+    //   case (Hardware.DTL.REF(_), _) => false
+    //   case (_, out) => out > 1
+    // }
+    // System.err.println(s"SHARED = $shared ")
+    System.err.println(audit(soln._1).mkString("\n"))
+    System.err.println(s"COST = ${soln._2._1}")
+    // System.err.println(s"IMPL = $impl")
   }
 
   def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Unit = {

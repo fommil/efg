@@ -135,6 +135,7 @@ object Netlist {
     // will be the connection identifier for its output.
 
     // OneHot is not supported by the std cell library, so we need to convert
+    // TODO can we use the "generic" node for this?
     val outputs_ = outputs.map {
       case (n, x: OneHot) => n -> x.asCore
       case other => other
