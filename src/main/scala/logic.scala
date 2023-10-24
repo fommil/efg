@@ -24,6 +24,17 @@
 //
 // The output is a netlib in yosys (https://github.com/YosysHQ/) JSON format,
 // which can be rendered by https://github.com/nturley/netlistsvg
+//
+// FIXME investigate and attempt to reimplement FRAIGS (how it is unique!)
+//       to see if it finds maximal node sharing
+// TODO keep a running explanation of the fraigs/abc approach
+// TODO find out what the SAT is doing in FRAIGS
+// TODO get the test data sets
+// TODO find out what the "cuts" stuff is all about
+// TODO find out if there's anything else I'm missing about FRAIGS
+// TODO go and get the test rewrite example from the paper and optimise it
+//      to get the standard textbook rewrite rule (refactor of the optimiser
+//      needed)
 package logic
 
 import java.io.File
