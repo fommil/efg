@@ -952,12 +952,7 @@ object Main {
       complete.reverse.map(_.toString)
     }
 
-    val ground_truth = all_my_circuits.head._1
     val baseline = all_my_circuits.map(_._2._1).min
-    all_my_circuits.tail.foreach {
-      // FIXME this doesn't necessarilly hold when the truth table has dterms
-      case (needle, _) => verify(minsums.input_width, ground_truth, needle)
-    }
 
     // TODO add variants with truth table inverted for outputs with more than half true
 
@@ -975,13 +970,7 @@ object Main {
 
       def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
         if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
-          try verify(minsums.input_width, ground_truth, entry)
-          catch {
-            case e: AssertionError =>
-              System.err.println(s"Rule was $desc")
-              throw e
-          }
-
+          require(verify(minsums.input_width, prev, entry), desc)
           val cost = obj.measure(entry)
           val (last_cost, history) = all_my_circuits(prev)
           val trail = (cost, (prev, desc, last_cost) :: history)
@@ -1053,17 +1042,17 @@ object Main {
     // System.err.println(s"IMPL = $impl")
   }
 
-  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Unit = {
+  def verify(input_width: Int, orig: Map[String, Logic], update: Map[String, Logic]): Boolean = {
     (0 until (1 << input_width)).foreach { i =>
       val in = BitSet.fromBitMask(Array(i))
       for {
         channel <- orig.keys
       } {
-        if (orig(channel).eval(in) != update(channel).eval(in)) {
-          throw new AssertionError(s"verification failure ${orig(channel)} != ${update(channel)} in $channel")
-        }
+        if (orig(channel).eval(in) != update(channel).eval(in))
+          return false
       }
     }
+    true
   }
 
 }
