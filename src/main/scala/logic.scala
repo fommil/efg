@@ -313,6 +313,23 @@ object LocalRule {
     }
   }
 
+  // when a gate has a complement, this is where we swap between them. could
+  // arguably be included in DeMorgan but it's not technically the same thing.
+  object Complement extends LocalRule {
+    override def name: String = "complement"
+
+    def perform(node: Logic): List[Logic] = {
+      val node_ = perform_(node)
+      if (node_ == node) Nil else List(node_)
+    }
+
+    def perform_(node: Logic): Logic = node match {
+      case Xor(es) => Inv(Xnor(es))
+      case Xnor(es) => Inv(Xor(es))
+      case _ => node
+    }
+  }
+
   class Cached(underlying: LocalRule, limit: Int) extends LocalRule {
     override def name: String = underlying.name
 
@@ -921,7 +938,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._

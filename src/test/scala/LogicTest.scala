@@ -28,6 +28,9 @@ object LogicGen {
     val or: Gen[Logic] = set.map(Or(_))
     val and: Gen[Logic] = set.map(And(_))
 
+    // note we don't generate any special forms here, but maybe we should! or at
+    // least generate them but convert to their core form.
+
     Gen.frequency(
       Gen.delay(in) -> 1,
       Gen.delay(inv) -> 3,
@@ -174,6 +177,7 @@ class LogicTest extends Test {
   def testEliminate: Unit = propLocalRule(Eliminate)
   def testFactor: Unit = propLocalRule(Factor)
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
+  def testComplement: Unit = propLocalRule(Complement)
 
   def testSharedAnd: Unit = propGlobalRule(SharedAnd)
   def testSharedOr: Unit = propGlobalRule(SharedOr)
