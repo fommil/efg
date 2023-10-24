@@ -66,6 +66,7 @@ object Hardware {
       case And(es) => AND(es.map(materialise(_)))
       case Or(es) => OR(es.map(materialise(_)))
       case Xor(es) => XOR(es.map(materialise(_)))
+      case Xnor(es) => XNOR(es.map(materialise(_)))
       case OneHot(es) => OH(es.map(materialise(_)))
     }
 

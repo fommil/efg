@@ -140,7 +140,7 @@ object LocalRule {
             val n = new Or(sub)
             Set(
               Xor.from(n),
-              // Xnor.from(n),
+              Xnor.from(n),
               OneHot.from(n),
               // NotOneHot.from(n)
             ).flatten.map { gate =>
@@ -155,7 +155,6 @@ object LocalRule {
 
   // TODO NAND (including flipping of inputs)
   // TODO NOR
-  // TODO XNOR
   // TODO NOH
   // TODO cycle the inversion of inputs (e.g. XOR, XNOR)
 
@@ -473,6 +472,8 @@ sealed trait Logic { self =>
       else parts.mkString("(", " + ", ")")
     case Xor(entries) =>
       entries.map(_.render(true, false)).mkString("(", " ⊕ ", ")")
+    case Xnor(entries) =>
+      entries.map(_.render(true, false)).mkString("(", " ⊙ ", ")")
     case OneHot(entries) =>
       entries.map(_.render(true, false)).mkString("(", " Δ ", ")")
   }
@@ -486,6 +487,7 @@ sealed trait Logic { self =>
     case And(as) => as.forall(_.eval(input))
     case Or(os) => os.exists(_.eval(input))
     case Xor(es) => es.count(_.eval(input)) % 2 == 1
+    case Xnor(es) => es.count(_.eval(input)) % 2 == 0
     case OneHot(es) => es.count(_.eval(input)) == 1
   }
 
@@ -509,23 +511,19 @@ sealed trait Logic { self =>
 
       self match {
         case True => self
-
         case Inv(e) =>
           val replaced = e.replace(lut)
           if (replaced ne e) Inv(replaced) else self
-
         case And(entries) =>
           replace_(entries)(es => And(es.toSet))
-
         case Or(entries) =>
           replace_(entries)(es => Or(es.toSet))
-
         case Xor(entries) =>
           replace_(entries)(es => Xor(es.toSet))
-
+        case Xnor(entries) =>
+          replace_(entries)(es => Xnor(es.toSet))
         case OneHot(entries) =>
           replace_(entries)(es => OneHot(es.toSet))
-
         case _: In => self
       }
   }
@@ -538,6 +536,7 @@ sealed trait Logic { self =>
       case And(es) => es.flatMap(_.nodes) + self
       case Or(es) => es.flatMap(_.nodes) + self
       case Xor(es) => es.flatMap(_.nodes) + self
+      case Xnor(es) => es.flatMap(_.nodes) + self
       case OneHot(es) => es.flatMap(_.nodes) + self
     }
   }
@@ -579,12 +578,12 @@ object Logic {
   // a placemarker (along with Inv(True)) for nodes that can be collapsed
   case object True extends Logic
 
-  // XOR/XNOR/OH/NOH may seem like unusual entries in the AST because they are
-  // just special forms of OR. However, it's necessary to encode the special
-  // form this way to avoid carrying it as metadata, plus there is ambiguity in
-  // the inversion of inputs when written in the OR form. Ideally we'd have a
-  // "core" AST and an "extended" one, but since we have very little use for the
-  // core AST, we only use this extended one.
+  // XOR/XNOR/OH/NOH/NAND/NOR may seem like unusual entries in the AST because
+  // they are just special forms of AND/OR. However, it's necessary to encode
+  // them to avoid carrying metadata, plus there is ambiguity in the inversion
+  // of inputs when written in the OR form. Ideally we'd have a "core" AST and
+  // an "extended" one, but since we have very little use for the core AST, we
+  // only use this extended one.
 
   // x ⊕ y = (x' · y) + (x · y')
   //
@@ -605,23 +604,23 @@ object Logic {
     }
   }
 
-  // // x ⊙ y = (x · y) + (x' · y')
-  // //
-  // // higher arity counts even parity (in the sense that it is "not odd").
-  // case class Xnor private[logic](entries: Set[Logic]) extends Logic {
-  //   override val hashCode: Int = 31 * entries.hashCode
-  //   override def equals(that: Any): Boolean = that match {
-  //     case thon: Xnor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
-  //     case _ => false
-  //   }
-  //   def asCore: Logic = Or {
-  //     (0 to entries.size by 2).flatMap { i: Int =>
-  //       entries.subsets(i).map { even =>
-  //         And(even ++ entries.diff(even).map(Inv(_)))
-  //       }
-  //     }.toSet
-  //   }
-  // }
+  // x ⊙ y = (x · y) + (x' · y')
+  //
+  // higher arity counts even parity (in the sense that it is "not odd").
+  case class Xnor private[logic](entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = 31 * entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: Xnor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
+    def asCore: Logic = Or {
+      (0 to entries.size by 2).flatMap { i: Int =>
+        entries.subsets(i).map { even =>
+          And(even ++ entries.diff(even).map(Inv(_)))
+        }
+      }.toSet
+    }
+  }
 
   // "one hot" means exactly one of the inputs is high, and the rest are low.
   case class OneHot private[logic](entries: Set[Logic]) extends Logic {
@@ -729,10 +728,10 @@ object Logic {
       }
     }
 
-    // note that Xor(Xor(inputs).asCore) is not true in general, as inputs may
-    // be inverted in pairs.
+    // note that Xor(Xor(inputs).asCore) == Xor(inputs) is not true in general,
+    // as inputs may be inverted in pairs.
     def from(node: Logic): Option[Logic] = node match {
-      // case Inv(Xnor(es)) => Some(new Xor(es))
+      case Inv(Xnor(es)) => Some(new Xor(es))
       case Or(es) =>
         val (invalid, terms) = es.partitionMap {
           case And(es_) => Right(es_)
@@ -771,50 +770,50 @@ object Logic {
     }
   }
 
-  // object Xnor {
-  //   def apply(head: Logic, tail: Logic*): Logic =
-  //     apply(tail.toSet + head)
-  //
-  //   def apply(entries: Set[Logic]): Logic = {
-  //     require(entries.nonEmpty)
-  //     if (entries.size == 1) entries.head
-  //     else {
-  //       require_normed(entries)
-  //       new Xnor(entries)
-  //     }
-  //   }
-  //
-  //   def from(node: Logic): Option[Logic] = node match {
-  //     case Inv(Xor(es)) => Some(new Xnor(es))
-  //     case Or(es) =>
-  //       val (invalid, terms) = es.partitionMap {
-  //         case And(es_) => Right(es_)
-  //         case other => Left(other)
-  //       }
-  //       if (invalid.nonEmpty)
-  //         return None
-  //       val comps = terms.flatten
-  //       val norms = comps.map {
-  //         case Inv(e) => e
-  //         case e => e
-  //       }
-  //
-  //       // XNOR has roughly the same properties as XOR
-  //       if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
-  //         return None
-  //
-  //       (0 to norms.size).reverse.foreach { i =>
-  //         // subsets(0) gives an empty set allowing for all flipped
-  //         norms.subsets(i).foreach { ss =>
-  //           val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
-  //           val xnor = new Xnor(inputs)
-  //           if (xnor.asCore == node) return Some(xnor)
-  //         }
-  //       }
-  //       None
-  //     case _ => None
-  //   }
-  // }
+  object Xnor {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
+
+    def apply(entries: Set[Logic]): Logic = {
+      require(entries.nonEmpty)
+      if (entries.size == 1) entries.head
+      else {
+        require_normed(entries)
+        new Xnor(entries)
+      }
+    }
+
+    def from(node: Logic): Option[Logic] = node match {
+      case Inv(Xor(es)) => Some(new Xnor(es))
+      case Or(es) =>
+        val (invalid, terms) = es.partitionMap {
+          case And(es_) => Right(es_)
+          case other => Left(other)
+        }
+        if (invalid.nonEmpty)
+          return None
+        val comps = terms.flatten
+        val norms = comps.map {
+          case Inv(e) => e
+          case e => e
+        }
+
+        // XNOR has roughly the same properties as XOR
+        if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
+          return None
+
+        (0 to norms.size).reverse.foreach { i =>
+          // subsets(0) gives an empty set allowing for all flipped
+          norms.subsets(i).foreach { ss =>
+            val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
+            val xnor = new Xnor(inputs)
+            if (xnor.asCore == node) return Some(xnor)
+          }
+        }
+        None
+      case _ => None
+    }
+  }
 
   object OneHot {
     def apply(head: Logic, tail: Logic*): Logic =

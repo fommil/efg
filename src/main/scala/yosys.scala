@@ -189,6 +189,15 @@ object Netlist {
           Cell("$reduce_xor", Map.empty, Map("A" -> "input", "Y" -> "output"),
             Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
       }}
+      case (n: Xnor, y) => Right { s"Xnor$$$y" -> {
+        if (n.entries.size == 2) {
+          val es = n.entries.toList.map(con(_))
+          Cell("$_XNOR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
+            Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
+        } else
+          Cell("$reduce_xnor", Map.empty, Map("A" -> "input", "Y" -> "output"),
+            Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+      }}
       case (n: In, y) => Left { names(n) -> Port("input", List(y)) }
     }
 

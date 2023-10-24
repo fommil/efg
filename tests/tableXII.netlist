@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "tableXII.truth (12.5)" : {
+    "tableXII.truth (11.5)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",
@@ -12,31 +12,33 @@
         },
         "i1" : {
           "direction" : "input",
-          "bits" : [4]
+          "bits" : [5]
         },
         "i2" : {
           "direction" : "input",
-          "bits" : [1]
+          "bits" : [10]
         },
         "o0" : {
           "direction" : "output",
-          "bits" : [3]
+          "bits" : [6]
         }
       },
       "cells" : {
-        "Inv$6" : {
-          "type" : "$_NOT_",
+        "Xnor$9" : {
+          "type" : "$_XNOR_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
+            "B" : "input",
             "Y" : "output"
           },
           "connections" : {
-            "A" : [4],
-            "Y" : [6]
+            "A" : [10],
+            "B" : [8],
+            "Y" : [9]
           }
         },
-        "And$10" : {
+        "And$4" : {
           "type" : "$_AND_",
           "attributes" : {},
           "port_directions" : {
@@ -45,21 +47,9 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [0],
-            "B" : [1],
-            "Y" : [10]
-          }
-        },
-        "Inv$12" : {
-          "type" : "$_NOT_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [0],
-            "Y" : [12]
+            "A" : [9],
+            "B" : [7],
+            "Y" : [4]
           }
         },
         "Inv$7" : {
@@ -70,50 +60,8 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [8],
+            "A" : [5],
             "Y" : [7]
-          }
-        },
-        "Or$11" : {
-          "type" : "$_OR_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [10],
-            "B" : [2],
-            "Y" : [11]
-          }
-        },
-        "And$9" : {
-          "type" : "$_AND_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [12],
-            "B" : [4],
-            "Y" : [9]
-          }
-        },
-        "And$5" : {
-          "type" : "$_AND_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [11],
-            "B" : [6],
-            "Y" : [5]
           }
         },
         "Or$3" : {
@@ -125,23 +73,45 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [9],
-            "B" : [5],
+            "A" : [7],
+            "B" : [0],
             "Y" : [3]
           }
         },
-        "Xor$2" : {
-          "type" : "$_XOR_",
+        "And$2" : {
+          "type" : "$reduce_and",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
-            "B" : "input",
             "Y" : "output"
           },
           "connections" : {
-            "A" : [1],
-            "B" : [7],
+            "A" : [7, 10, 0],
             "Y" : [2]
+          }
+        },
+        "Or$6" : {
+          "type" : "$reduce_or",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [1, 2, 4],
+            "Y" : [6]
+          }
+        },
+        "Inv$1" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [3],
+            "Y" : [1]
           }
         }
       }

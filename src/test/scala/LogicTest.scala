@@ -44,11 +44,17 @@ object LogicGen {
     case And(entries) => Shrink.set(shrinker.shrink)(entries).map(And(_))
     case Or(entries) => Shrink.set(shrinker.shrink)(entries).map(Or(_))
     case Xor(entries) => Shrink.set(shrinker.shrink)(entries).map(Xor(_))
+    case Xnor(entries) => Shrink.set(shrinker.shrink)(entries).map(Xnor(_))
     case OneHot(entries) => Shrink.set(shrinker.shrink)(entries).map(OneHot(_))
   }
 }
 
 class LogicTest extends Test {
+  // common entries...
+  private val a = In(0)
+  private val b = In(1)
+  private val c = In(2)
+  // private val d = In(3)
 
   def testXOR: Unit = {
     val or2 = Or(
@@ -71,28 +77,25 @@ class LogicTest extends Test {
     assertEquals(Some(xor3), Xor.from(or3))
   }
 
-  // def testXNOR: Unit = {
-  //   val node2 = Or(
-  //     And(Inv(In(0)), Inv(In(1))),
-  //     And(In(0), In(1)),
-  //   )
-  //   assertEquals(Set(In(0), In(1)), node2.asXNOR)
+  def testXNOR: Unit = {
+    val or2 = Or(
+      And(Inv(In(0)), Inv(In(1))),
+      And(In(0), In(1)),
+    )
+    val xnor2 = new Xnor(Set(In(0), In(1)))
+    assertEquals(or2, xnor2.asCore)
+    assertEquals(Some(xnor2), Xnor.from(or2))
 
-  //   val node3 = Or(
-  //     And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-  //     And(In(0), In(1), Inv(In(2))),
-  //     And(In(0), Inv(In(1)), In(2)),
-  //     And(Inv(In(0)), In(1), In(2)),
-  //   )
-  //   assertEquals(Set(In(0), In(1), In(2)), node3.asXNOR)
-
-  //   // like with XOR we can't recover the original input normalizations...
-  //   val flipped2 = Xnor(In(0), Inv(In(1)))
-  //   assertEquals(Set(Inv(In(0)), In(1)), flipped2.asXNOR)
-
-  //   val flipped3 = Xnor(In(0), In(1), Inv(In(2)))
-  //   assertEquals(Set(In(0), Inv(In(1)), In(2)), flipped3.asXNOR)
-  // }
+    val or3 = Or(
+      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+      And(In(0), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), In(2)),
+    )
+    val xnor3 = new Xnor(Set(In(0), In(1), In(2)))
+    assertEquals(or3, xnor3.asCore)
+    assertEquals(Some(xnor3), Xnor.from(or3))
+  }
 
   def testOH: Unit = {
     val or3 = Or(
@@ -180,12 +183,6 @@ class LogicTest extends Test {
   // any property test that fails, no matter how simple, should be documented
   // below as a standalone test, committed along with the fix.
 
-  // common entries...
-  private val a = In(0)
-  private val b = In(1)
-  private val c = In(2)
-  // private val d = In(3)
-
   // a·(a + b)
   def testEliminate1: Unit = {
     val logic = And(a, Or(a, b))
@@ -268,7 +265,12 @@ class LogicTest extends Test {
       And(a, Inv(b)),
       c
     )
-    assertEquals(List(Or(c, Xor(a, b))), Split.perform(logic))
+    val rewrites = List(
+      Or(c, Xor(a, b)),
+      Or(c, Xnor(Inv(a), b))
+    )
+
+    assertEquals(rewrites, Split.perform(logic))
     assertLocalRule(Split, logic)
   }
 
