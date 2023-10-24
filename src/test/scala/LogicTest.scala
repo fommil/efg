@@ -262,6 +262,16 @@ class LogicTest extends Test {
     assertLocalRule(Factor, logic)
   }
 
+  def testSplit1: Unit = {
+    val logic = Or(
+      And(Inv(a), b),
+      And(a, Inv(b)),
+      c
+    )
+    assertEquals(List(Or(c, Xor(a, b))), Split.perform(logic))
+    assertLocalRule(Split, logic)
+  }
+
 }
 
 // Local Variables:

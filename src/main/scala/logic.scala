@@ -134,16 +134,18 @@ object LocalRule {
     override def name: String = "split"
 
     override def perform(node: Logic): List[Logic] = node match {
-      case Or(es) if es.size > 2 =>
-        (2 to (es.size + 1) / 2).toList.flatMap { i =>
+      case Or(es) =>
+        (2 to es.size).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
-            List(
+            Set(
               Xor.from(n),
               // Xnor.from(n),
               OneHot.from(n),
               // NotOneHot.from(n)
-            ).flatten
+            ).flatten.map { gate =>
+              Or(es.diff(sub) + gate)
+            }
           }
         }
 
@@ -467,13 +469,9 @@ sealed trait Logic { self =>
       if (ands) parts.mkString(" + ")
       else parts.mkString("(", " + ", ")")
     case Xor(entries) =>
-      val parts = entries.map(_.render(true, false))
-      if (ands) parts.mkString(" ⊕ ")
-      else parts.mkString("(", " ⊕ ", ")")
+      entries.map(_.render(true, false)).mkString("(", " ⊕ ", ")")
     case OneHot(entries) =>
-      val parts = entries.map(_.render(true, false))
-      if (ands) parts.mkString(" Δ ")
-      else parts.mkString("(", " Δ ", ")")
+      entries.map(_.render(true, false)).mkString("(", " Δ ", ")")
   }
   final def render: String = render(true, true)
   override final def toString: String = render
@@ -1040,12 +1038,11 @@ object Main {
       case (n, i) => In(i) -> n
     }.toMap
     val netlist = Netlist.from(
-      in.getName,
+      "circuit",
       names,
       soln._1
     )
     System.out.println(netlist.toJsonPretty)
-    System.out.flush()
 
     // val impl = soln._1.map { case (n, c) => n -> Hardware.DTL.materialise(c) }
     // val shared = Hardware.DTL.fanout(impl.values.toSet).filter {
@@ -1053,7 +1050,7 @@ object Main {
     //   case (_, out) => out > 1
     // }
     // System.err.println(s"SHARED = $shared ")
-    System.err.println(audit(soln._1).mkString("\n"))
+    // System.err.println(audit(soln._1).mkString("\n"))
     System.err.println(s"COST = ${soln._2._1}")
     // System.err.println(s"IMPL = $impl")
   }
