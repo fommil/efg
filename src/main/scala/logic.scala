@@ -153,9 +153,11 @@ object LocalRule {
     }
   }
 
-  // TODO XNOR into Inv(Xor), NOH into Inv(OH) (and flipping of inputs)
-  // TODO NAND / NOR (including flipping of inputs)
-  // TODO cycle the inversion of inputs to special gates
+  // TODO NAND (including flipping of inputs)
+  // TODO NOR
+  // TODO XNOR
+  // TODO NOH
+  // TODO cycle the inversion of inputs (e.g. XOR, XNOR)
 
   // Eliminate by absorption
   //
