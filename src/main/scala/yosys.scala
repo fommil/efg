@@ -158,6 +158,12 @@ object Netlist {
           Map("in0" -> "input", "out0" -> "output"),
           Map("in0" -> n.entries.map(con(_)).toList, "out0" -> List(y)))
       }
+      case (n: NotOneHot, y) => Right { s"NotOneHot$$$y" ->
+        // the "ref" doesn't seem to change the rendering
+        Cell("generic", Map("ref" -> "NOH"),
+          Map("in0" -> "input", "out0" -> "output"),
+          Map("in0" -> n.entries.map(con(_)).toList, "out0" -> List(y)))
+      }
       case (n: Inv, y) => Right { s"Inv$$$y" ->
         Cell("$_NOT_", Map.empty, Map("A" -> "input", "Y" -> "output"),
           Map("A" -> List(con(n.entry)), "Y" -> List(y)))

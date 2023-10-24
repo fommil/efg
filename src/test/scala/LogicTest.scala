@@ -49,6 +49,7 @@ object LogicGen {
     case Xor(entries) => Shrink.set(shrinker.shrink)(entries).map(Xor(_))
     case Xnor(entries) => Shrink.set(shrinker.shrink)(entries).map(Xnor(_))
     case OneHot(entries) => Shrink.set(shrinker.shrink)(entries).map(OneHot(_))
+    case NotOneHot(entries) => Shrink.set(shrinker.shrink)(entries).map(NotOneHot(_))
   }
 }
 
@@ -111,19 +112,18 @@ class LogicTest extends Test {
     assertEquals(Some(oh3), OneHot.from(or3))
   }
 
-  // def testNOH: Unit = {
-  //   val node3 = Or(
-  //     And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-  //     And(In(0), In(1), Inv(In(2))),
-  //     And(In(0), Inv(In(1)), In(2)),
-  //     And(Inv(In(0)), In(1), In(2)),
-  //     And(In(0), In(1), In(2)),
-  //   )
-  //   assertEquals(Set(In(0), In(1), In(2)), node3.asNOH)
-
-  //   val flipped3 = Noh(In(0), In(1), Inv(In(2)))
-  //   assertEquals(Set(In(0), In(1), Inv(In(2))), flipped3.asNOH)
-  // }
+  def testNOH: Unit = {
+    val or3 = Or(
+      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
+      And(In(0), In(1), Inv(In(2))),
+      And(In(0), Inv(In(1)), In(2)),
+      And(Inv(In(0)), In(1), In(2)),
+      And(In(0), In(1), In(2)),
+    )
+    val noh3 = new NotOneHot(Set(In(0), In(1), In(2)))
+    assertEquals(or3, noh3.asCore)
+    assertEquals(Some(noh3), NotOneHot.from(or3))
+  }
 
   def assertLocalRule(rule: LocalRule, ast: Logic): Unit = {
     val high_ = ast.nodes.collect { case In(i) => i }.maxOption

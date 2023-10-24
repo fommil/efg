@@ -142,7 +142,7 @@ object LocalRule {
               Xor.from(n),
               Xnor.from(n),
               OneHot.from(n),
-              // NotOneHot.from(n)
+              NotOneHot.from(n)
             ).flatten.map { gate =>
               Or(es.diff(sub) + gate)
             }
@@ -155,7 +155,6 @@ object LocalRule {
 
   // TODO NAND (including flipping of inputs)
   // TODO NOR
-  // TODO NOH
   // TODO cycle the inversion of inputs (e.g. XOR, XNOR)
 
   // Eliminate by absorption
@@ -326,6 +325,8 @@ object LocalRule {
     def perform_(node: Logic): Logic = node match {
       case Xor(es) => Inv(Xnor(es))
       case Xnor(es) => Inv(Xor(es))
+      case OneHot(es) => Inv(NotOneHot(es))
+      case NotOneHot(es) => Inv(OneHot(es))
       case _ => node
     }
   }
@@ -493,6 +494,8 @@ sealed trait Logic { self =>
       entries.map(_.render(true, false)).mkString("(", " ⊙ ", ")")
     case OneHot(entries) =>
       entries.map(_.render(true, false)).mkString("(", " Δ ", ")")
+    case NotOneHot(entries) =>
+      entries.map(_.render(true, false)).mkString("(", " ∇ ", ")")
   }
   final def render: String = render(true, true)
   override final def toString: String = render
@@ -506,6 +509,7 @@ sealed trait Logic { self =>
     case Xor(es) => es.count(_.eval(input)) % 2 == 1
     case Xnor(es) => es.count(_.eval(input)) % 2 == 0
     case OneHot(es) => es.count(_.eval(input)) == 1
+    case NotOneHot(es) => es.count(_.eval(input)) != 1
   }
 
   // Replace every node that is equal to the target, recursing into children.
@@ -541,6 +545,8 @@ sealed trait Logic { self =>
           replace_(entries)(es => Xnor(es.toSet))
         case OneHot(entries) =>
           replace_(entries)(es => OneHot(es.toSet))
+        case NotOneHot(entries) =>
+          replace_(entries)(es => NotOneHot(es.toSet))
         case _: In => self
       }
   }
@@ -555,6 +561,7 @@ sealed trait Logic { self =>
       case Xor(es) => es.flatMap(_.nodes) + self
       case Xnor(es) => es.flatMap(_.nodes) + self
       case OneHot(es) => es.flatMap(_.nodes) + self
+      case NotOneHot(es) => es.flatMap(_.nodes) + self
     }
   }
 }
@@ -652,23 +659,23 @@ object Logic {
     }
   }
 
-  // // negation of "one hot"
-  // case class NotOneHot private[logic](entries: Set[Logic]) extends Logic {
-  //   override val hashCode: Int = 41 * entries.hashCode
-  //   override def equals(that: Any): Boolean = that match {
-  //     case thon: NotOneHot => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
-  //     case _ => false
-  //   }
-  //   def asCore: Logic = Or {
-  //     val entries_ = entries.map(Inv(_))
-  //
-  //     (2 to entries_.size).toSet.flatMap { i: Int =>
-  //       entries_.subsets(i).map { subs =>
-  //         And(subs.map(Inv(_)) ++ entries_.diff(subs))
-  //       }.toSet
-  //     } + And(entries_)
-  //   }
-  // }
+  // negation of "one hot"
+  case class NotOneHot private[logic](entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = 41 * entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: NotOneHot => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
+    def asCore: Logic = Or {
+      val entries_ = entries.map(Inv(_))
+
+      (2 to entries_.size).toSet.flatMap { i: Int =>
+        entries_.subsets(i).map { subs =>
+          And(subs.map(Inv(_)) ++ entries_.diff(subs))
+        }.toSet
+      } + And(entries_)
+    }
+  }
 
   object Inv {
     private val False = new Inv(True)
@@ -845,7 +852,7 @@ object Logic {
     }
 
     def from(node: Logic): Option[Logic] = node match {
-      // case Inv(NotOneHot(es)) => Some(new OneHot(es))
+      case Inv(NotOneHot(es)) => Some(new OneHot(es))
       case Or(es) =>
         val (invalid, terms) = es.toList.partitionMap {
           case And(es_) => Right(es_.toList)
@@ -870,45 +877,45 @@ object Logic {
     }
   }
 
-  // object NotOneHot {
-  //   def apply(head: Logic, tail: Logic*): Logic =
-  //     apply(tail.toSet + head)
-  //
-  //   def apply(entries: Set[Logic]): Logic = {
-  //     require(entries.nonEmpty)
-  //     if (entries.size < 3) Xnor(entries)
-  //     else {
-  //       require_normed(entries)
-  //       new NotOneHot(entries)
-  //     }
-  //   }
-  //
-  //   def from(node: Logic): Option[Logic] = node match {
-  //     case Inv(OneHot(es)) => Some(new NotOneHot(es))
-  //     case Or(es) =>
-  //       val (invalid, terms) = es.toList.partitionMap {
-  //         case And(es_) => Right(es_.toList)
-  //         case other => Left(other)
-  //       }
-  //       if (invalid.nonEmpty) return None
-  //
-  //       val widths = terms.map(_.size).toSet
-  //       if (widths.size != 1 || widths.head < 3) return None
-  //
-  //       val counts = terms.flatten.counts
-  //       if (counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
-  //         return None
-  //
-  //       // the opposite of OH...
-  //       val inputs = counts.groupBy(_._2).maxBy(_._1)._2.keySet
-  //       val noh = new NotOneHot(inputs)
-  //
-  //       if (noh.asCore == node) Some(noh)
-  //       else None
-  //
-  //     case _ => None
-  //   }
-  // }
+  object NotOneHot {
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
+
+    def apply(entries: Set[Logic]): Logic = {
+      require(entries.nonEmpty)
+      if (entries.size < 3) Xnor(entries)
+      else {
+        require_normed(entries)
+        new NotOneHot(entries)
+      }
+    }
+
+    def from(node: Logic): Option[Logic] = node match {
+      case Inv(OneHot(es)) => Some(new NotOneHot(es))
+      case Or(es) =>
+        val (invalid, terms) = es.toList.partitionMap {
+          case And(es_) => Right(es_.toList)
+          case other => Left(other)
+        }
+        if (invalid.nonEmpty) return None
+
+        val widths = terms.map(_.size).toSet
+        if (widths.size != 1 || widths.head < 3) return None
+
+        val counts = terms.flatten.counts
+        if (counts.size != 2 * widths.head || counts.values.toSet.size != 2 )
+          return None
+
+        // the opposite of OH...
+        val inputs = counts.groupBy(_._2).maxBy(_._1)._2.keySet
+        val noh = new NotOneHot(inputs)
+
+        if (noh.asCore == node) Some(noh)
+        else None
+
+      case _ => None
+    }
+  }
 
   object In {
 
