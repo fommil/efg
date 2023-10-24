@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "circuit" : {
+    "tableV.truth (12.0)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",

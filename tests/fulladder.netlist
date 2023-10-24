@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "circuit" : {
+    "fulladder.truth (8.5)" : {
       "ports" : {
         "A" : {
           "direction" : "input",

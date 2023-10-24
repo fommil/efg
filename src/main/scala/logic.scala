@@ -153,7 +153,8 @@ object LocalRule {
     }
   }
 
-  // TODO XNOR into Inv(Xor), NOH into Inv(OH)
+  // TODO XNOR into Inv(Xor), NOH into Inv(OH) (and flipping of inputs)
+  // TODO NAND / NOR (including flipping of inputs)
   // TODO cycle the inversion of inputs to special gates
 
   // Eliminate by absorption
@@ -620,11 +621,6 @@ object Logic {
   //   }
   // }
 
-  // OH / NOH might be an over-reach of the AST... they can be fully represented
-  // by OR/AND. and it makes us wonder if we should also have NAND / NOR / etc
-  // since it allows us to optimise sharing of such nodes and their inverted
-  // form at the logic level (not hardware).
-
   // "one hot" means exactly one of the inputs is high, and the rest are low.
   case class OneHot private[logic](entries: Set[Logic]) extends Logic {
     override val hashCode: Int = 37 * entries.hashCode
@@ -959,6 +955,7 @@ object Main {
     val ground_truth = all_my_circuits.head._1
     val baseline = all_my_circuits.map(_._2._1).min
     all_my_circuits.tail.foreach {
+      // FIXME this doesn't necessarilly hold when the truth table has dterms
       case (needle, _) => verify(minsums.input_width, ground_truth, needle)
     }
 
@@ -1034,11 +1031,12 @@ object Main {
 
     val soln = all_my_circuits.minBy(_._2._1)
 
+    val cost = soln._2._1
     val names = minsums.input_names.zipWithIndex.map {
       case (n, i) => In(i) -> n
     }.toMap
     val netlist = Netlist.from(
-      "circuit",
+      s"${in.getName} ($cost)",
       names,
       soln._1
     )
@@ -1051,7 +1049,7 @@ object Main {
     // }
     // System.err.println(s"SHARED = $shared ")
     // System.err.println(audit(soln._1).mkString("\n"))
-    System.err.println(s"COST = ${soln._2._1}")
+    System.err.println(s"COST = ${cost}")
     // System.err.println(s"IMPL = $impl")
   }
 

@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "circuit" : {
+    "hexdecoder.truth (48.25)" : {
       "ports" : {
         "o6" : {
           "direction" : "output",
