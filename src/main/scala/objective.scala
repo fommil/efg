@@ -35,6 +35,7 @@ object Objective {
       case  OH(es) => 2 * resistor + pnp + es.size * diode
       case XOR(es) => (es.size - 1) * (3 * resistor + 2 * npn)
       case XNOR(es) => (es.size - 1) * (3 * resistor + 2 * pnp)
+      case NAND(es) => 2 * resistor + es.size * diode + npn // saves a resistor
     }
   }
 

@@ -149,11 +149,12 @@ object LocalRule {
           }
         }
 
+      // would it be useful to find NAND subsets of an AND?
+
       case _ => Nil
     }
   }
 
-  // TODO NAND (including flipping of inputs)
   // TODO NOR
   // TODO cycle the inversion of inputs (e.g. XOR, XNOR)
 
@@ -323,10 +324,12 @@ object LocalRule {
     }
 
     def perform_(node: Logic): Logic = node match {
-      case Xor(es) => Inv(Xnor(es))
-      case Xnor(es) => Inv(Xor(es))
-      case OneHot(es) => Inv(NotOneHot(es))
-      case NotOneHot(es) => Inv(OneHot(es))
+      case Xor(es) => Inv(new Xnor(es))
+      case Xnor(es) => Inv(new Xor(es))
+      case OneHot(es) => Inv(new NotOneHot(es))
+      case NotOneHot(es) => Inv(new OneHot(es))
+      case And(es) => Inv(new Nand(es))
+      case Nand(es) => Inv(new And(es))
       case _ => node
     }
   }
@@ -496,6 +499,8 @@ sealed trait Logic { self =>
       entries.map(_.render(true, false)).mkString("(", " Δ ", ")")
     case NotOneHot(entries) =>
       entries.map(_.render(true, false)).mkString("(", " ∇ ", ")")
+    case Nand(entries) =>
+      entries.map(_.render(true, false)).mkString("(", " ¤ ", ")")
   }
   final def render: String = render(true, true)
   override final def toString: String = render
@@ -510,6 +515,7 @@ sealed trait Logic { self =>
     case Xnor(es) => es.count(_.eval(input)) % 2 == 0
     case OneHot(es) => es.count(_.eval(input)) == 1
     case NotOneHot(es) => es.count(_.eval(input)) != 1
+    case Nand(es) => !es.forall(_.eval(input))
   }
 
   // Replace every node that is equal to the target, recursing into children.
@@ -547,6 +553,8 @@ sealed trait Logic { self =>
           replace_(entries)(es => OneHot(es.toSet))
         case NotOneHot(entries) =>
           replace_(entries)(es => NotOneHot(es.toSet))
+        case Nand(entries) =>
+           replace_(entries)(es => Nand(es.toSet))
         case _: In => self
       }
   }
@@ -562,6 +570,7 @@ sealed trait Logic { self =>
       case Xnor(es) => es.flatMap(_.nodes) + self
       case OneHot(es) => es.flatMap(_.nodes) + self
       case NotOneHot(es) => es.flatMap(_.nodes) + self
+      case Nand(es) => es.flatMap(_.nodes) + self
     }
   }
 }
@@ -675,6 +684,15 @@ object Logic {
         }.toSet
       } + And(entries_)
     }
+  }
+
+  case class Nand private[logic](entries: Set[Logic]) extends Logic {
+    override val hashCode: Int = 43 * entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: Nand => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
+    def asCore: Logic = Inv(And(entries))
   }
 
   object Inv {
@@ -913,6 +931,23 @@ object Logic {
         if (noh.asCore == node) Some(noh)
         else None
 
+      case _ => None
+    }
+  }
+
+  object Nand {
+    // def apply(head: Logic, tail: Logic*): Logic =
+    //   apply(tail.toSet + head)
+    // def apply(entries: Set[Logic]): Logic = {
+    //   require(entries.nonEmpty)
+    //   And(entries) match {
+    //     case And(cleaned) => Nand(cleaned)
+    //     case other => Inv(other)
+    //   }
+    // }
+
+    def from(node: Logic): Option[Logic] = node match {
+      case Inv(And(entries)) => Some(new Nand(entries))
       case _ => None
     }
   }

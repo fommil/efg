@@ -36,6 +36,10 @@ object Hardware {
     // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOR(entries: Set[DTL]) extends DTL { override def toString = s"""NOR(${entries.mkString(", ")})"""}
 
+    // this isn't really anything beyond INV(AND(...)), maybe not worth including...
+    // https://www.falstad.com/circuit/e-dtlnand.html
+    case class NAND(entries: Set[DTL]) extends DTL { override def toString = s"""NAND(${entries.mkString(", ")})"""}
+
     // rectifier and NPN "Not One Hot". Equivalent to XNOR for 2 inputs but not any other arity.
     //
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
@@ -69,6 +73,7 @@ object Hardware {
       case Xnor(es) => XNOR(es.map(materialise(_)))
       case OneHot(es) => OH(es.map(materialise(_)))
       case NotOneHot(es) => NOH(es.map(materialise(_)))
+      case Nand(es) => NAND(es.map(materialise(_)))
     }
 
     def fanout(circuits: Set[DTL]): Map[DTL, Int] = {
@@ -89,6 +94,7 @@ object Hardware {
           case  OH(es) => fanout_seq(acc_, es)
           case XOR(es) => fanout_seq(acc_, es)
           case XNOR(es) => fanout_seq(acc_, es)
+          case NAND(es) => fanout_seq(acc_, es)
         }
       }
 
