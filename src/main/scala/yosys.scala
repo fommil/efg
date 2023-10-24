@@ -148,10 +148,12 @@ object Netlist {
       }
     }.partitionMap {
       case (True, y) => Right { s"True$$$y" ->
+        // the "ref" doesn't seem to change the rendering
         Cell("$_constant_", Map("ref" -> "1"), Map("Y" -> "output"),
           Map("Y" -> List(y)))
       }
       case (n: OneHot, y) => Right { s"OneHot$$$y" ->
+        // the "ref" doesn't seem to change the rendering
         Cell("generic", Map("ref" -> "OH"),
           Map("in0" -> "input", "out0" -> "output"),
           Map("in0" -> n.entries.map(con(_)).toList, "out0" -> List(y)))
