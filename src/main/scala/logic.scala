@@ -149,7 +149,7 @@ object LocalRule {
           }
         }
 
-      // would it be useful to find NAND subsets of an AND?
+      // it's unclear if NAND/NOR subsets would be useful
 
       case _ => Nil
     }
@@ -330,6 +330,8 @@ object LocalRule {
       case NotOneHot(es) => Inv(new OneHot(es))
       case And(es) => Inv(new Nand(es))
       case Nand(es) => Inv(new And(es))
+      case Or(es) => Inv(new Nor(es))
+      case Nor(es) => Inv(new Or(es))
       case _ => node
     }
   }
@@ -410,6 +412,7 @@ object GlobalRule {
     }.toList
   }
 
+  // TODO basic Shared* should be reusable code and include XNOR/OH/NOH/NAND/NOR
   object SharedXor extends GlobalRule {
     override def name: String = "shared_xor"
 
@@ -501,6 +504,8 @@ sealed trait Logic { self =>
       entries.map(_.render(true, false)).mkString("(", " ∇ ", ")")
     case Nand(entries) =>
       entries.map(_.render(true, false)).mkString("(", " ¤ ", ")")
+    case Nor(entries) =>
+      entries.map(_.render(true, false)).mkString("(", " - ", ")")
   }
   final def render: String = render(true, true)
   override final def toString: String = render
@@ -516,6 +521,7 @@ sealed trait Logic { self =>
     case OneHot(es) => es.count(_.eval(input)) == 1
     case NotOneHot(es) => es.count(_.eval(input)) != 1
     case Nand(es) => !es.forall(_.eval(input))
+    case Nor(os) => !os.exists(_.eval(input))
   }
 
   // Replace every node that is equal to the target, recursing into children.
@@ -554,7 +560,10 @@ sealed trait Logic { self =>
         case NotOneHot(entries) =>
           replace_(entries)(es => NotOneHot(es.toSet))
         case Nand(entries) =>
+           // FIXME NAND/NOR need to have custom "def apply" to simplify away TRUE/FALSE entries
            replace_(entries)(es => Nand(es.toSet))
+        case Nor(entries) =>
+           replace_(entries)(es => Nor(es.toSet))
         case _: In => self
       }
   }
@@ -571,6 +580,7 @@ sealed trait Logic { self =>
       case OneHot(es) => es.flatMap(_.nodes) + self
       case NotOneHot(es) => es.flatMap(_.nodes) + self
       case Nand(es) => es.flatMap(_.nodes) + self
+      case Nor(es) => es.flatMap(_.nodes) + self
     }
   }
 }
@@ -599,6 +609,8 @@ object Logic {
   // constructor enforces identity A + 0 = A
   // constructor enforces complementation A + A' = 1
   case class Or  private[logic](entries: Set[Logic]) extends Logic {
+    assert(!entries.contains(Inv(True)))
+
     override val hashCode: Int = 23 * entries.hashCode
     override def equals(that: Any): Boolean = that match {
       case thon: Or => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
@@ -693,6 +705,17 @@ object Logic {
       case _ => false
     }
     def asCore: Logic = Inv(And(entries))
+  }
+
+  case class Nor private[logic](entries: Set[Logic]) extends Logic {
+    assert(!entries.contains(Inv(True)))
+
+    override val hashCode: Int = 47 * entries.hashCode
+    override def equals(that: Any): Boolean = that match {
+      case thon: Nor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
+      case _ => false
+    }
+    def asCore: Logic = Inv(Or(entries))
   }
 
   object Inv {
@@ -936,20 +959,21 @@ object Logic {
   }
 
   object Nand {
-    // def apply(head: Logic, tail: Logic*): Logic =
-    //   apply(tail.toSet + head)
-    // def apply(entries: Set[Logic]): Logic = {
-    //   require(entries.nonEmpty)
-    //   And(entries) match {
-    //     case And(cleaned) => Nand(cleaned)
-    //     case other => Inv(other)
-    //   }
-    // }
+    // def apply would need to do a lot of what And.apply does..
 
-    def from(node: Logic): Option[Logic] = node match {
-      case Inv(And(entries)) => Some(new Nand(entries))
-      case _ => None
-    }
+    // def from(node: Logic): Option[Logic] = node match {
+    //   case Inv(And(entries)) => Some(new Nand(entries))
+    //   case _ => None
+    // }
+  }
+
+  object Nor {
+    // def apply would need to do a lot of what Or.apply does..
+
+    // def from(node: Logic): Option[Logic] = node match {
+    //   case Inv(Or(entries)) => Some(new Nor(entries))
+    //   case _ => None
+    // }
   }
 
   object In {

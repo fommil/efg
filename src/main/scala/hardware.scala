@@ -74,6 +74,7 @@ object Hardware {
       case OneHot(es) => OH(es.map(materialise(_)))
       case NotOneHot(es) => NOH(es.map(materialise(_)))
       case Nand(es) => NAND(es.map(materialise(_)))
+      case Nor(es) => NOR(es.map(materialise(_)))
     }
 
     def fanout(circuits: Set[DTL]): Map[DTL, Int] = {

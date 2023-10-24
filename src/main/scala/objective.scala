@@ -17,8 +17,13 @@ object Objective {
     import Hardware.DTL
     import Hardware.DTL._
 
-    override def measure(circuit: Map[String, Logic]): Double =
+    override def measure(circuit: Map[String, Logic]): Double = try {
       measureFanout(DTL.fanout(circuit.values.toSet.map(DTL.materialise(_))))
+    } catch {
+      case e: IllegalStateException =>
+        System.err.println(s"FAILED CIRCUIT $circuit")
+        throw e
+    }
 
     // BUF should really be counted a bit more...
     def measureFanout(fanout: Map[DTL, Int]): Double =
