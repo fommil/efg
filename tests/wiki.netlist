@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "wiki.truth (8.0)" : {
+    "wiki.truth (6.5)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",
@@ -8,11 +8,11 @@
         },
         "i3" : {
           "direction" : "input",
-          "bits" : [8]
+          "bits" : [5]
         },
         "i1" : {
           "direction" : "input",
-          "bits" : [4]
+          "bits" : [3]
         },
         "i2" : {
           "direction" : "input",
@@ -20,12 +20,52 @@
         },
         "o0" : {
           "direction" : "output",
-          "bits" : [7]
+          "bits" : [8]
         }
       },
       "cells" : {
-        "Or$5" : {
+        "Inv$6" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [2],
+            "Y" : [6]
+          }
+        },
+        "And$7" : {
+          "type" : "$_AND_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [1],
+            "B" : [5],
+            "Y" : [7]
+          }
+        },
+        "Or$8" : {
           "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [4],
+            "B" : [7],
+            "Y" : [8]
+          }
+        },
+        "Nor$4" : {
+          "type" : "$_NOR_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
@@ -35,19 +75,7 @@
           "connections" : {
             "A" : [0],
             "B" : [1],
-            "Y" : [5]
-          }
-        },
-        "Inv$3" : {
-          "type" : "$_NOT_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [5],
-            "Y" : [3]
+            "Y" : [4]
           }
         },
         "Or$1" : {
@@ -59,49 +87,9 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [9],
-            "B" : [4],
+            "A" : [6],
+            "B" : [3],
             "Y" : [1]
-          }
-        },
-        "Inv$9" : {
-          "type" : "$_NOT_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [2],
-            "Y" : [9]
-          }
-        },
-        "Or$7" : {
-          "type" : "$_OR_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [3],
-            "B" : [6],
-            "Y" : [7]
-          }
-        },
-        "And$6" : {
-          "type" : "$_AND_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [1],
-            "B" : [8],
-            "Y" : [6]
           }
         }
       }

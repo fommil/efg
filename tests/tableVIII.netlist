@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "tableVIII.truth (7.0)" : {
+    "tableVIII.truth (6.5)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",
@@ -12,19 +12,19 @@
         },
         "i1" : {
           "direction" : "input",
-          "bits" : [6]
+          "bits" : [2]
         },
         "i2" : {
           "direction" : "input",
-          "bits" : [1]
+          "bits" : [7]
         },
         "o0" : {
           "direction" : "output",
-          "bits" : [2]
+          "bits" : [1]
         }
       },
       "cells" : {
-        "Or$2" : {
+        "Or$1" : {
           "type" : "$_OR_",
           "attributes" : {},
           "port_directions" : {
@@ -34,8 +34,8 @@
           },
           "connections" : {
             "A" : [3],
-            "B" : [7],
-            "Y" : [2]
+            "B" : [6],
+            "Y" : [1]
           }
         },
         "Xor$3" : {
@@ -48,12 +48,12 @@
           },
           "connections" : {
             "A" : [0],
-            "B" : [6],
+            "B" : [2],
             "Y" : [3]
           }
         },
-        "Or$4" : {
-          "type" : "$_OR_",
+        "Nor$4" : {
+          "type" : "$_NOR_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
@@ -61,13 +61,13 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [1],
+            "A" : [7],
             "B" : [5],
             "Y" : [4]
           }
         },
-        "Xnor$7" : {
-          "type" : "$_XNOR_",
+        "Xor$6" : {
+          "type" : "$_XOR_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
@@ -75,9 +75,9 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [6],
+            "A" : [0],
             "B" : [4],
-            "Y" : [7]
+            "Y" : [6]
           }
         }
       }

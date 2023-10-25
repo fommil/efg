@@ -51,6 +51,7 @@ object LogicGen {
     case OneHot(entries) => Shrink.set(shrinker.shrink)(entries).map(OneHot(_))
     case NotOneHot(entries) => Shrink.set(shrinker.shrink)(entries).map(NotOneHot(_))
     case Nand(entries) => Shrink.set(shrinker.shrink)(entries).map(Nand(_))
+    case Nor(entries) => Shrink.set(shrinker.shrink)(entries).map(Nor(_))
   }
 }
 

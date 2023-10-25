@@ -2,6 +2,9 @@
 // https://github.com/berkeley-abc/abc/
 // https://people.eecs.berkeley.edu/~alanmi/publications/
 //
+// Larger test data sets are available at https://github.com/lsils/benchmarks
+// but this code is really only for 8-bit scale stuff.
+//
 // This code takes inspiration from the research of "Multilevel Logic Synthesis"
 // (Brayton90), "SOCRATES: A System for AutomatiCally Synthesizing and
 // Optimizing Combinational Logic" (Gregory88) by applying metarules. However,
@@ -571,10 +574,9 @@ sealed trait Logic { self =>
         case NotOneHot(entries) =>
           replace_(entries)(es => NotOneHot(es.toSet))
         case Nand(entries) =>
-           // FIXME NAND/NOR need to have custom "def apply" to simplify away TRUE/FALSE entries
-           replace_(entries)(es => Nand(es.toSet))
+          replace_(entries)(es => Nand(es.toSet))
         case Nor(entries) =>
-           replace_(entries)(es => Nor(es.toSet))
+          replace_(entries)(es => Nor(es.toSet))
         case _: In => self
       }
   }
@@ -769,6 +771,9 @@ object Logic {
   object Or {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
+
+    // TODO this logic (and AND) could be made simpler at the cost of perf and
+    //      perhaps the nesting is too much, since LocalRule catches it
     def apply(entries: Set[Logic]): Logic = {
       var entries_ = entries
 
@@ -795,12 +800,16 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
+    // nested XOR not considered
     def apply(entries: Set[Logic]): Logic = {
-      require(entries.nonEmpty)
-      if (entries.size == 1) entries.head
+      val entries_ = entries - Inv(True)
+      require(entries_.nonEmpty)
+      if (entries_.size == 1) entries_.head
+      else if (entries_.contains(True))
+        Xnor(entries_ - True)
       else {
-        require_normed(entries)
-        new Xor(entries)
+        require_normed(entries_)
+        new Xor(entries_)
       }
     }
 
@@ -850,12 +859,16 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
+    // nested XNOR not considered
     def apply(entries: Set[Logic]): Logic = {
       require(entries.nonEmpty)
       if (entries.size == 1) entries.head
+      else if (entries.contains(True))
+        Xor(entries - True)
       else {
-        require_normed(entries)
-        new Xnor(entries)
+        val entries_ = entries - Inv(True)
+        require_normed(entries_)
+        new Xnor(entries_)
       }
     }
 
@@ -895,11 +908,14 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
+    // nested OH not considered
     def apply(entries: Set[Logic]): Logic = {
-      if (entries.size < 3) Xor(entries)
+      val entries_ = entries - Inv(True)
+      if (entries_.contains(True)) Inv(And(entries_ - True))
+      else if (entries_.size < 3) Xor(entries_)
       else {
-        require_normed(entries)
-        new OneHot(entries)
+        require_normed(entries_)
+        new OneHot(entries_)
       }
     }
 
@@ -933,12 +949,15 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
+    // nested NOH not considered
     def apply(entries: Set[Logic]): Logic = {
-      require(entries.nonEmpty)
-      if (entries.size < 3) Xnor(entries)
+      val entries_ = entries - Inv(True)
+      require(entries_.nonEmpty)
+      if (entries_.contains(True)) Or(entries_ - True)
+      else if (entries_.size < 3) Xnor(entries_)
       else {
-        require_normed(entries)
-        new NotOneHot(entries)
+        require_normed(entries_)
+        new NotOneHot(entries_)
       }
     }
 
@@ -970,21 +989,29 @@ object Logic {
   }
 
   object Nand {
-    // def apply would need to do a lot of what And.apply does..
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
 
-    // def from(node: Logic): Option[Logic] = node match {
-    //   case Inv(And(entries)) => Some(new Nand(entries))
-    //   case _ => None
-    // }
+    // nested NAND not considered
+    def apply(entries: Set[Logic]): Logic = {
+      And(entries) match {
+        case And(entries_) => new Nand(entries_)
+        case other => Inv(other)
+      }
+    }
   }
 
   object Nor {
-    // def apply would need to do a lot of what Or.apply does..
+    def apply(head: Logic, tail: Logic*): Logic =
+      apply(tail.toSet + head)
 
-    // def from(node: Logic): Option[Logic] = node match {
-    //   case Inv(Or(entries)) => Some(new Nor(entries))
-    //   case _ => None
-    // }
+    // nested NOR not considered
+    def apply(entries: Set[Logic]): Logic = {
+      Or(entries) match {
+        case Or(entries_) => new Nor(entries_)
+        case other => Inv(other)
+      }
+    }
   }
 
   object In {
@@ -1132,7 +1159,7 @@ object Main {
     //   case (_, out) => out > 1
     // }
     // System.err.println(s"SHARED = $shared ")
-    // System.err.println(audit(soln._1).mkString("\n"))
+    System.err.println(audit(soln._1).mkString("\n"))
     System.err.println(s"COST = ${cost}")
     // System.err.println(s"IMPL = $impl")
   }
