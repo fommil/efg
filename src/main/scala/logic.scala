@@ -383,84 +383,37 @@ trait GlobalRule {
 object GlobalRule {
   // finds multi-input gates that have subsets that could be utilised by other
   // overlapping parts of the circuit, and splits them out as nested entries.
-  object SharedAnd extends GlobalRule {
-    override def name: String = "shared_and"
+  object Shared extends GlobalRule {
+    override def name: String = "shared"
 
-    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      ands(circuits).map { case (a, b) => Map(a -> b) }
+    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] = (
+      share(circuits){ case e@ And(es) => (e, es) }(And(_)) ++
+        share(circuits){ case e@ Or(es) => (e, es) }(Or(_)) ++
+        share(circuits){ case e@ Xor(es) => (e, es) }(Xor(_))
+        // share(circuits){ case e@ Xnor(es) => (e, es) }(Xnor(_))
+    ).map { case (a, b) => Map(a -> b) }
 
-    private def ands(circuits: Set[Logic]): List[(Logic, Logic)] = {
-      val ands = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: And => e }
-      }
+    private def share(circuits: Set[Logic])(select: PartialFunction[Logic, (Logic, Set[Logic])])(cons: Set[Logic] => Logic): List[(Logic, Logic)] = {
+      val gates = circuits.flatMap { circuit => circuit.nodes.collect { select } }
       for {
-        left <- ands
-        left_ = left.entries
-        right <- ands
-        right_ = right.entries
+        (left, left_) <- gates
+        (right, right_) <- gates
         if left != right
         subset = left_.intersect(right_)
         if subset.size > 1 && left_.size > subset.size
       } yield {
-        (left, new And(left_.diff(subset) + new And(subset)))
+        (left, cons(left_.diff(subset) + cons(subset)))
       }
     }.toList
   }
 
-  object SharedOr extends GlobalRule {
-    override def name: String = "shared_or"
+  // TODO try moving this back into LocalRules since it is simpler
 
-    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      ors(circuits).map { case (a, b) => Map(a -> b) }
-
-    private def ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
-      val ors = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: Or => e }
-      }
-      for {
-        left <- ors
-        left_ = left.entries
-        right <- ors
-        right_ = right.entries
-        if left != right
-        subset = left_.intersect(right_)
-        if subset.size > 1 && left_.size > subset.size
-      } yield {
-        (left, new Or(left_.diff(subset) + new Or(subset)))
-      }
-    }.toList
-  }
-
-  // TODO basic Shared* should be reusable code and include XNOR/OH/NOH/NAND/NOR
-  object SharedXor extends GlobalRule {
-    override def name: String = "shared_xor"
-
-    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      xors(circuits).map { case (a, b) => Map(a -> b) }
-
-    // these are not caught by the 'ors' rule because of the complex interaction
-    // between the components.
-    private def xors(circuits: Set[Logic]): List[(Logic, Logic)] = {
-      val xors = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: Xor => e }
-      }
-
-      for {
-        left <- xors
-        right <- xors
-        if left != right
-        left_ = left.entries
-        right_ = right.entries
-        subset = left_.intersect(right_)
-        if subset.size > 1 && left_.size > subset.size
-      } yield {
-        (left, Xor(left_.diff(subset) + Xor(subset)))
-      }
-    }.toList
-  }
-
-  // this detects when an OR can be expanded because it would allow its
-  // XOR component to be shared with an existing XOR gate.
+  // this detects when an OR can be expanded because it would allow its XOR
+  // component to be shared with an existing XOR gate. This should really be a
+  // LocalRule but it was computationally expensive and since the only benefit
+  // is to encourage sharing (most local transforms make it worse) it is
+  // reasonable as a global rule.
   //
   // a + b = a.b' + a'.b + a.b
   object SharedOrXor extends GlobalRule {
@@ -1051,7 +1004,7 @@ object Main {
     }
     val global_rules = {
       import GlobalRule._
-      List(SharedAnd, SharedOr, SharedXor, SharedOrXor)
+      List(Shared, SharedOrXor)
     }
 
     val max_steps = 128

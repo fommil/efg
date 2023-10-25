@@ -181,9 +181,7 @@ class LogicTest extends Test {
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
   def testComplement: Unit = propLocalRule(Complement)
 
-  def testSharedAnd: Unit = propGlobalRule(SharedAnd)
-  def testSharedOr: Unit = propGlobalRule(SharedOr)
-  def testSharedXor: Unit = propGlobalRule(SharedXor)
+  def testShared: Unit = propGlobalRule(Shared)
   def testSharedOrXor: Unit = propGlobalRule(SharedOrXor)
 
   // any property test that fails, no matter how simple, should be documented
