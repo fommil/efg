@@ -64,20 +64,20 @@ class LogicTest extends Test {
 
   def testXOR: Unit = {
     val or2 = Or(
-      And(Inv(In(0)), In(1)),
-      And(In(0), Inv(In(1))),
+      And(Inv(a), b),
+      And(a, Inv(b)),
     )
-    val xor2 = new Xor(Set(In(0), In(1)))
+    val xor2 = new Xor(Set(a, b))
     assertEquals(or2, xor2.asCore)
     assertEquals(Some(xor2), Xor.from(or2))
 
     val or3 = Or(
-      And(Inv(In(0)), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), Inv(In(2))),
-      And(In(0), In(1), In(2)),
+      And(Inv(a), Inv(b), c),
+      And(Inv(a), b, Inv(c)),
+      And(a, Inv(b), Inv(c)),
+      And(a, b, c),
     )
-    val xor3 = new Xor(Set(In(0), In(1), In(2)))
+    val xor3 = new Xor(Set(a, b, c))
 
     assertEquals(or3, xor3.asCore)
     assertEquals(Some(xor3), Xor.from(or3))
@@ -85,44 +85,44 @@ class LogicTest extends Test {
 
   def testXNOR: Unit = {
     val or2 = Or(
-      And(Inv(In(0)), Inv(In(1))),
-      And(In(0), In(1)),
+      And(Inv(a), Inv(b)),
+      And(a, b),
     )
-    val xnor2 = new Xnor(Set(In(0), In(1)))
+    val xnor2 = new Xnor(Set(a, b))
     assertEquals(or2, xnor2.asCore)
     assertEquals(Some(xnor2), Xnor.from(or2))
 
     val or3 = Or(
-      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-      And(In(0), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), In(2)),
+      And(Inv(a), Inv(b), Inv(c)),
+      And(a, b, Inv(c)),
+      And(a, Inv(b), c),
+      And(Inv(a), b, c),
     )
-    val xnor3 = new Xnor(Set(In(0), In(1), In(2)))
+    val xnor3 = new Xnor(Set(a, b, c))
     assertEquals(or3, xnor3.asCore)
     assertEquals(Some(xnor3), Xnor.from(or3))
   }
 
   def testOH: Unit = {
     val or3 = Or(
-      And(Inv(In(0)), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), Inv(In(2))),
+      And(Inv(a), Inv(b), c),
+      And(Inv(a), b, Inv(c)),
+      And(a, Inv(b), Inv(c)),
     )
-    val oh3 = new OneHot(Set(In(0), In(1), In(2)))
+    val oh3 = new OneHot(Set(a, b, c))
     assertEquals(or3, oh3.asCore)
     assertEquals(Some(oh3), OneHot.from(or3))
   }
 
   def testNOH: Unit = {
     val or3 = Or(
-      And(Inv(In(0)), Inv(In(1)), Inv(In(2))),
-      And(In(0), In(1), Inv(In(2))),
-      And(In(0), Inv(In(1)), In(2)),
-      And(Inv(In(0)), In(1), In(2)),
-      And(In(0), In(1), In(2)),
+      And(Inv(a), Inv(b), Inv(c)),
+      And(a, b, Inv(c)),
+      And(a, Inv(b), c),
+      And(Inv(a), b, c),
+      And(a, b, c),
     )
-    val noh3 = new NotOneHot(Set(In(0), In(1), In(2)))
+    val noh3 = new NotOneHot(Set(a, b, c))
     assertEquals(or3, noh3.asCore)
     assertEquals(Some(noh3), NotOneHot.from(or3))
   }
