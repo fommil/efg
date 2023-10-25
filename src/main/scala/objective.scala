@@ -35,7 +35,10 @@ object Objective {
       case  OR(es) => resistor + es.size * diode
       case NOT(_)  => 2 * resistor + npn
       case BUF(_, _)  => ???
-      case NOR(es) => (2 + es.size) * resistor + npn
+      case NOR(es) =>
+        // small NOR uses a voltage divider (can this scale to more inputs?)
+        if (es.size < 3) (2 + es.size) * resistor + npn
+        else 3 * resistor + es.size * diode + npn
       case NOH(es) => 2 * resistor + npn + es.size * diode
       case  OH(es) => 2 * resistor + pnp + es.size * diode
       case XOR(es) => (es.size - 1) * (3 * resistor + 2 * npn)
@@ -44,7 +47,8 @@ object Objective {
     }
   }
 
-  //   - TODO CMOS https://en.wikipedia.org/wiki/CMOS
-  //   - TODO Sky130 https://github.com/google/skywater-pdk
+  // could do the same for
+  //  - CMOS https://en.wikipedia.org/wiki/CMOS
+  //  - Sky130 https://github.com/google/skywater-pdk
 
 }

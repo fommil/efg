@@ -1,6 +1,6 @@
 {
   "modules" : {
-    "tableXII.truth (8.0)" : {
+    "tableXII.truth (9.0)" : {
       "ports" : {
         "i0" : {
           "direction" : "input",
@@ -8,7 +8,7 @@
         },
         "i3" : {
           "direction" : "input",
-          "bits" : [9]
+          "bits" : [8]
         },
         "i1" : {
           "direction" : "input",
@@ -16,24 +16,54 @@
         },
         "i2" : {
           "direction" : "input",
-          "bits" : [1]
+          "bits" : [10]
         },
         "o0" : {
           "direction" : "output",
-          "bits" : [10]
+          "bits" : [7]
         }
       },
       "cells" : {
-        "Inv$11" : {
-          "type" : "$_NOT_",
+        "And$3" : {
+          "type" : "$_AND_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
+            "B" : "input",
             "Y" : "output"
           },
           "connections" : {
-            "A" : [1],
-            "Y" : [11]
+            "A" : [0],
+            "B" : [10],
+            "Y" : [3]
+          }
+        },
+        "Xnor$9" : {
+          "type" : "$_XNOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [10],
+            "B" : [8],
+            "Y" : [9]
+          }
+        },
+        "Nor$1" : {
+          "type" : "$_NOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [3],
+            "B" : [9],
+            "Y" : [1]
           }
         },
         "Nor$2" : {
@@ -45,12 +75,38 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [8],
-            "B" : [0],
+            "A" : [1],
+            "B" : [5],
             "Y" : [2]
           }
         },
-        "Nor$7" : {
+        "Inv$6" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [5],
+            "Y" : [6]
+          }
+        },
+        "Or$7" : {
+          "type" : "$_OR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [4],
+            "B" : [2],
+            "Y" : [7]
+          }
+        },
+        "Nor$4" : {
           "type" : "$_NOR_",
           "attributes" : {},
           "port_directions" : {
@@ -60,68 +116,8 @@
           },
           "connections" : {
             "A" : [0],
-            "B" : [9],
-            "Y" : [7]
-          }
-        },
-        "Inv$8" : {
-          "type" : "$_NOT_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [5],
-            "Y" : [8]
-          }
-        },
-        "Nor$4" : {
-          "type" : "$reduce_nor",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [2, 6, 3],
+            "B" : [6],
             "Y" : [4]
-          }
-        },
-        "Inv$10" : {
-          "type" : "$_NOT_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [4],
-            "Y" : [10]
-          }
-        },
-        "Nor$3" : {
-          "type" : "$reduce_nor",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [7, 11, 5],
-            "Y" : [3]
-          }
-        },
-        "Nor$6" : {
-          "type" : "$reduce_nor",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [5, 1, 9],
-            "Y" : [6]
           }
         }
       }

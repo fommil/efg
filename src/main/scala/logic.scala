@@ -160,7 +160,7 @@ object LocalRule {
           }
         }
 
-      // it's unclear if NAND/NOR subsets would be useful
+        // it's unclear if NAND/NOR subsets would be useful
 
       case _ => Nil
     }
@@ -298,26 +298,26 @@ object LocalRule {
   object DeMorgan extends LocalRule {
     override def name: String = "demorgan"
 
-    def perform(node: Logic): List[Logic] = {
-      val node_ = perform_(node)
-      if (node_ == node) Nil else List(node_)
-    }
-    def perform_(node: Logic): Logic = node match {
-      case And(nodes) =>
-        val (norm, inv) = nodes.partitionMap {
-          case Inv(e) => Right(e)
-          case e => Left(Inv(e))
-        }
-        Inv(Or(norm ++ inv))
+    def perform(node: Logic): List[Logic] = node match {
+      case And(nodes) => List(Inv(Or(nodes.map(Inv(_)))))
+      case Or(nodes) => List(Inv(And(nodes.map(Inv(_)))))
 
-      case Or(nodes) =>
-        val (norm, inv) = nodes.partitionMap {
-          case Inv(e) => Right(e)
-          case e => Left(Inv(e))
+      // flipping an even number of inputs retains the same gate, flipping an
+      // odd number swaps between XOR/XNOR.
+      case Xor(entries) => (1 to entries.size).toList.flatMap { i =>
+        entries.subsets(i).map { sub =>
+          if (i % 2 == 0) Xor(sub.map(Inv(_)) ++ entries.diff(sub))
+          else Xnor(sub.map(Inv(_)) ++ entries.diff(sub))
         }
-        Inv(And(norm ++ inv))
+      }
+      case Xnor(entries) => (1 to entries.size).toList.flatMap { i =>
+        entries.subsets(i).map { sub =>
+          if (i % 2 == 0) Xnor(sub.map(Inv(_)) ++ entries.diff(sub))
+          else Xor(sub.map(Inv(_)) ++ entries.diff(sub))
+        }
+      }
 
-      case _ => node
+      case _ => Nil
     }
   }
 
@@ -340,15 +340,19 @@ object LocalRule {
       case Nand(es) => Inv(new And(es))
       case Or(es) => Inv(new Nor(es))
       case Nor(es) => Inv(new Or(es))
+
+      // and the inverses
+      case Inv(Xnor(es)) => new Xor(es)
+      case Inv(Xor(es)) => new Xnor(es)
+      case Inv(NotOneHot(es)) => new OneHot(es)
+      case Inv(OneHot(es)) => new NotOneHot(es)
+      case Inv(Nand(es)) => new And(es)
+      case Inv(And(es)) => new Nand(es)
+      case Inv(Nor(es)) => new Or(es)
+      case Inv(Or(es)) => new Nor(es)
+
       case _ => node
     }
-  }
-
-  object Cycle extends LocalRule {
-    override def name: String = "cycle"
-
-    // FIXME implement Cycle
-    def perform(node: Logic): List[Logic] = Nil
   }
 
   class Cached(underlying: LocalRule, limit: Int) extends LocalRule {
@@ -1043,7 +1047,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement, Cycle).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._
