@@ -32,9 +32,6 @@
 //
 // The output is a netlib in yosys (https://github.com/YosysHQ/) JSON format,
 // which can be rendered by https://github.com/nturley/netlistsvg
-//
-// TODO get the test rewrite example from the paper and optimise it to get the
-//      standard textbook rewrite rule (refactor of the optimiser needed)
 package logic
 
 import java.io.File
@@ -714,8 +711,7 @@ object Logic {
     def apply(head: Logic, tail: Logic*): Logic =
       apply(tail.toSet + head)
 
-    // TODO this logic (and AND) could be made simpler at the cost of perf and
-    //      perhaps the nesting is too much, since LocalRule catches it
+    // this logic (and AND) could be made simpler at the cost of perf
     def apply(entries: Set[Logic]): Logic = {
       var entries_ = entries
 
@@ -775,7 +771,7 @@ object Logic {
 
         // - every term has the same number of components.
         // - every component, and its inverse, appears an equal number of times.
-        // - the number of terms is the number of ways to get odd parity TODO (precalculated)
+        // - the number of terms is the number of ways to get odd parity (skipped)
         if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
           return None
 

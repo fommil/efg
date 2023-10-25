@@ -17,8 +17,15 @@ object Hardware {
   // the efficient Not One Hot (NOH) implementation using a rectifier network
   // with the transistor emitter feedback.
   //
-  // Old-school RTL NOR is preferred for 2 or 3 input NOR, which uses a voltage
+  // Old-school RTL NOR is preferred for 2 input NOR, which uses a voltage
   // divider instead of diodes.
+  //
+  // A lot of things have fan-in constraints, which are ignored.
+  //
+  // Fan out constraints could also be handled with the BUF node, but it's also
+  // ignored.
+  //
+  // Other gates can be added, e.g. (N)IMPLY gate.
   sealed trait DTL
   object DTL {
     case class REF(channel: Int)      extends DTL
@@ -28,12 +35,9 @@ object Hardware {
 
     // amplifier(s) to address fan-out constraints. Number required depends on
     // the fanout of the node.
-    //
-    // TODO an extra pass after materialise to add BUF for large fan-out
-    case class BUF(entry: DTL, id: Int) extends DTL
+    // case class BUF(entry: DTL, id: Int) extends DTL
 
-    // voltage divider (has fan-in constraints)
-    // TODO calculate the fan-in constraint in Falstad and breadboard
+    // voltage divider for 2 inputs (maybe 3)
     case class NOR(entries: Set[DTL]) extends DTL { override def toString = s"""NOR(${entries.mkString(", ")})"""}
 
     // this isn't really anything beyond INV(AND(...)), maybe not worth including...
@@ -44,7 +48,6 @@ object Hardware {
     //
     // https://www.edn.com/perform-the-xor-xnor-function-with-a-diode-bridge-and-a-transistor/
     // https://www.electricaltechnology.org/2018/12/exclusive-or-xor-gate.html#xor-gate-using-bjt-and-diodes
-    // TODO calculate the fan-in constraint in Falstad and breadboard
     case class NOH(entries: Set[DTL]) extends DTL { override def toString = s"""NOH(${entries.mkString(", ")})"""}
     // "One Hot" uses PNP, equivalent to XOR for 2 inputs.
     case class OH (entries: Set[DTL]) extends DTL { override def toString = s"""OH(${entries.mkString(", ")})"""}
@@ -54,14 +57,10 @@ object Hardware {
     // https://hackaday.io/project/8449-hackaday-ttlers/log/150147-bipolar-xor-gate-with-only-2-transistors
     // XOR / XNOR are probably best called PARITY when extended to higher arity.
     //
-    // TODO find an efficent way to implement multi-input XOR/XNOR otherwise,
-    // this should be viewed as nested XOR2 / XNOR2 at the hardware.
+    // It would be good if there was an efficent way to implement multi-input
+    // XOR/XNOR instead of having to be implemented as nested XOR2 / XNOR2.
     case class XOR(entries: Set[DTL]) extends DTL { override def toString = s"""XOR(${entries.mkString(", ")})"""}
     case class XNOR(entries: Set[DTL]) extends DTL { override def toString = s"""XNOR(${entries.mkString(", ")})"""}
-
-    // TODO eval to verify that the desired Logic is retained
-
-    // TODO is there an efficient way to encode an (N)IMPLY gate?
 
     def materialise(logic: Logic): DTL = logic match {
       case True => impossible
@@ -89,7 +88,7 @@ object Hardware {
           case AND(es) => fanout_seq(acc_, es)
           case  OR(es) => fanout_seq(acc_, es)
           case NOT(e)  => fanout_seq(acc_, Set(e))
-          case BUF(e, _) => fanout_seq(acc_, Set(e))
+          // case BUF(e, _) => fanout_seq(acc_, Set(e))
           case NOR(es) => fanout_seq(acc_, es)
           case NOH(es) => fanout_seq(acc_, es)
           case  OH(es) => fanout_seq(acc_, es)

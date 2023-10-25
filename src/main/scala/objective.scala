@@ -34,7 +34,7 @@ object Objective {
       case AND(es) => resistor + es.size * diode
       case  OR(es) => resistor + es.size * diode
       case NOT(_)  => 2 * resistor + npn
-      case BUF(_, _)  => ???
+      // case BUF(_, _)  => ???
       case NOR(es) =>
         // small NOR uses a voltage divider (can this scale to more inputs?)
         if (es.size < 3) (2 + es.size) * resistor + npn
