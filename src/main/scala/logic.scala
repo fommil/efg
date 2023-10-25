@@ -88,20 +88,20 @@ object LocalRule {
         else List(Or(nested.flatten ++ other))
 
       case Xor(entries) =>
-        val (nested, other) = entries.partitionMap {
-          case Xor(es) => Left(es)
+        val (nested, other) = entries.toList.partitionMap {
+          case Xor(es) => Left(es.toList)
           case es => Right(es)
         }
         if (nested.isEmpty) Nil
-        else List(Xor(nested.flatten ++ other))
-
-      case OneHot(entries) =>
-        val (nested, other) = entries.partitionMap {
-          case OneHot(es) => Left(es)
-          case es => Right(es)
+        else {
+          val nested_ = nested.flatten
+          val nested_s = nested_.toSet
+          // don't unnest XOR(XOR(a, b), a), but it should be simplified
+          // with removing the a (the general case is not obvious)
+          if (nested_s.size != nested_.size) Nil
+          else List(Xor(nested_s ++ other.toSet))
         }
-        if (nested.isEmpty) Nil
-        else List(OneHot(nested.flatten ++ other))
+        // similar story for XNOR...
 
       case _ => Nil
     }
@@ -355,6 +355,30 @@ object LocalRule {
     }
   }
 
+  // a + b = (a.b' + a'.b) + a.b
+  //
+  // which is inefficient in most cases, but may allow the XOR gate to be
+  // shared, and the a.b might get eliminated by higher terms. This can also be
+  // implemented as a globalrule when sharing is known in advance.
+  object Exclude extends LocalRule {
+    override def name: String = "exclude"
+
+    override def perform(node: Logic): List[Logic] = node match {
+      case Or(es) =>
+        (2 to es.size).toList.flatMap { i =>
+          es.subsets(i).map { subset =>
+            val evens = (2 to subset.size by 2).flatMap { j =>
+              subset.subsets(j).map(And(_))
+            }.toSet
+            Or(evens + Xor(subset) ++ es.diff(subset))
+          }
+        }
+
+      case _ => Nil
+    }
+
+  }
+
   class Cached(underlying: LocalRule, limit: Int) extends LocalRule {
     override def name: String = underlying.name
 
@@ -405,46 +429,6 @@ object GlobalRule {
         (left, cons(left_.diff(subset) + cons(subset)))
       }
     }.toList
-  }
-
-  // TODO try moving this back into LocalRules since it is simpler
-
-  // this detects when an OR can be expanded because it would allow its XOR
-  // component to be shared with an existing XOR gate. This should really be a
-  // LocalRule but it was computationally expensive and since the only benefit
-  // is to encourage sharing (most local transforms make it worse) it is
-  // reasonable as a global rule.
-  //
-  // a + b = a.b' + a'.b + a.b
-  object SharedOrXor extends GlobalRule {
-    override def name: String = "shared_or_xor"
-
-    override def perform(circuits: Set[Logic]): List[Map[Logic, Logic]] =
-      xors_ors(circuits).map { case (a, b) => Map(a -> b) }
-
-    private def xors_ors(circuits: Set[Logic]): List[(Logic, Logic)] = {
-      val ors = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: Or => e }
-      }
-      val xors = circuits.flatMap { circuit =>
-        circuit.nodes.collect { case e: Xor => e }
-      }
-      for {
-        left <- ors
-        right <- xors
-        left_ = left.entries
-        right_ = right.entries
-        subset = left_.intersect(right_)
-        if subset.size >= 2
-      } yield {
-        val evens = (2 to subset.size by 2).flatMap { i =>
-          subset.subsets(i).map(And(_))
-        }.toSet
-
-        (left, Or(left_.diff(subset) ++ evens + Xor(subset)))
-      }
-    }.toList
-
   }
 
 }
@@ -1000,11 +984,11 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement, Exclude).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._
-      List(Shared, SharedOrXor)
+      List(Shared)
     }
 
     val max_steps = 128
@@ -1050,7 +1034,7 @@ object Main {
 
       def push(entry: Map[String, Logic], prev: Map[String, Logic], desc: String): Unit = {
         if (!all_my_circuits.contains(entry) && !surface.contains(entry)) {
-          require(verify(minsums.input_width, prev, entry), desc)
+          require(verify(minsums.input_width, prev, entry), s"$desc on $prev to $entry")
           val cost = obj.measure(entry)
           val (last_cost, history) = all_my_circuits(prev)
           val trail = (cost, (prev, desc, last_cost) :: history)
