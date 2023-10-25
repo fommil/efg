@@ -14,30 +14,27 @@
 // by Sasao99.
 //
 // We explore the space of possible moves using a form of simulated annealing
-// with a fixed limit of scouts.
+// with a fixed limit of scouts. We start from the SOP which limits the size of
+// circuits that can be explored. We effectively start from the smallest delay
+// time and reduce the circuit size from there. Almost everything is therefore
+// biased towards finding shared nodes between the circuit outputs, which is
+// very inefficient. Modern digital circuit optimisation techniques typically
+// start from a word based description of the logic (not a truth table) which is
+// converted into an AIG (only AND and INV gates) normalised form that readily
+// reveals the shared nodes with deduplication using various techniques such as
+// structural hashing (actually bloom filters) and SAT based equivalence tests
+// that are a more efficient alternative to brute force testing if two nodes
+// produce the same output for the same (valid) set of inputs.
 //
 // Simple objective functions may be provided, such as reducing component count,
 // component cost, power consumption or critical path time for various
 // https://en.wikipedia.org/wiki/Logic_family
 //
-// The objective functions are incredibly simple and do not fully simulate the
-// circuits so there may be all kinds of power dissipation issues, especially
-// around fan-in and fan-out and do not consider interference (sometimes for the
-// better) such as power-up times of multi-gate components.
-//
 // The output is a netlib in yosys (https://github.com/YosysHQ/) JSON format,
 // which can be rendered by https://github.com/nturley/netlistsvg
 //
-// FIXME investigate and attempt to reimplement FRAIGS (how it is unique!)
-//       to see if it finds maximal node sharing
-// TODO keep a running explanation of the fraigs/abc approach
-// TODO find out what the SAT is doing in FRAIGS
-// TODO get the test data sets
-// TODO find out what the "cuts" stuff is all about
-// TODO find out if there's anything else I'm missing about FRAIGS
-// TODO go and get the test rewrite example from the paper and optimise it
-//      to get the standard textbook rewrite rule (refactor of the optimiser
-//      needed)
+// TODO get the test rewrite example from the paper and optimise it to get the
+//      standard textbook rewrite rule (refactor of the optimiser needed)
 package logic
 
 import java.io.File
@@ -168,9 +165,6 @@ object LocalRule {
       case _ => Nil
     }
   }
-
-  // TODO NOR
-  // TODO cycle the inversion of inputs (e.g. XOR, XNOR)
 
   // Eliminate by absorption
   //
@@ -348,6 +342,13 @@ object LocalRule {
       case Nor(es) => Inv(new Or(es))
       case _ => node
     }
+  }
+
+  object Cycle extends LocalRule {
+    override def name: String = "cycle"
+
+    // FIXME implement Cycle
+    def perform(node: Logic): List[Logic] = Nil
   }
 
   class Cached(underlying: LocalRule, limit: Int) extends LocalRule {
@@ -1042,7 +1043,7 @@ object Main {
 
     val local_rules = {
       import LocalRule._
-      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement).map(new Cached(_, 1024 * 1024))
+      List(Factor, UnNest, Eliminate, DeMorgan, Split, Complement, Cycle).map(new Cached(_, 1024 * 1024))
     }
     val global_rules = {
       import GlobalRule._

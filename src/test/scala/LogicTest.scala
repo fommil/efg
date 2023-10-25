@@ -180,6 +180,7 @@ class LogicTest extends Test {
   def testFactor: Unit = propLocalRule(Factor)
   def testDeMorgan: Unit = propLocalRule(DeMorgan)
   def testComplement: Unit = propLocalRule(Complement)
+  def testCycle: Unit = propLocalRule(Cycle)
 
   def testSharedAnd: Unit = propGlobalRule(SharedAnd)
   def testSharedOr: Unit = propGlobalRule(SharedOr)
