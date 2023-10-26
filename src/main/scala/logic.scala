@@ -42,6 +42,7 @@ import scala.annotation.unused
 import scala.collection.immutable.BitSet
 
 import fommil.cache._
+import fommil.parallel._
 import fommil.util._
 import jzon.syntax._
 import mccluskey.McCluskey
@@ -967,6 +968,9 @@ object Logic {
 
 object Main {
 
+  private val cpus = Runtime.getRuntime.availableProcessors
+  private val cpu_pool = Pool.bounded("cpu", cpus)
+
   def main(args: Array[String]): Unit = {
     require(args.length >= 1, "an input file must be provided")
     val in = new File(args(0))
@@ -1004,7 +1008,7 @@ object Main {
     // We might want to limit since it is a designed-in leak.
     //
     // the list of rules and intermediate solutions is recorded to aid auditing.
-    var all_my_circuits = minsums.asLogic.map { soln => soln -> (obj.measure(soln), List.empty[(Circuit, String, Double)]) }.toMap
+    @volatile var all_my_circuits = minsums.asLogic.map { soln => soln -> (obj.measure(soln), List.empty[(Circuit, String, Double)]) }.toMap
 
     @unused def audit(circuit: Circuit): List[String] = {
       val history = all_my_circuits(circuit)
@@ -1018,12 +1022,10 @@ object Main {
 
     var step = 0
 
-    // TODO parallelise
-
     // we repeat the same work for each output channel a lot of times so rule
     // application benefits from caching.
 
-    var surface = all_my_circuits
+    @volatile var surface = all_my_circuits
     while (step < max_steps && all_my_circuits.size < max_explored && surface.nonEmpty) {
       var surface_ = surface
       surface = Map.empty
@@ -1034,12 +1036,16 @@ object Main {
           val cost = obj.measure(entry)
           val (last_cost, history) = all_my_circuits(prev)
           val trail = (cost, (prev, desc, last_cost) :: history)
-          all_my_circuits += (entry -> trail)
 
-          // only add to the surface if we are making progress...
-          val progress = trail._2.map(_._3)
-          if (cost < 2 * baseline && (progress.size < 4 || progress(0) <= progress(3))) {
-            surface += (entry -> trail)
+          // only protects the writes, the reads can survive false extra work
+          args.synchronized {
+            all_my_circuits += (entry -> trail)
+
+            // only add to the surface if we are making progress...
+            val progress = trail._2.map(_._3)
+            if (cost < 2 * baseline && (progress.size < 4 || progress(0) <= progress(3))) {
+              surface += (entry -> trail)
+            }
           }
         }
       }
@@ -1048,9 +1054,9 @@ object Main {
       // strategies that could be taken here (including random sampling, or
       // maximising hamming distance), but we do the very naive thing of only
       // considering the best performing circuits.
-      surface_ = surface_.toList.sortBy(_._2._1).take(max_width).toMap
-
-      surface_.foreach { case (last_soln, _) =>
+      val surface__ = surface_.toList.sortBy(_._2._1).take(max_width)
+      surface_ = surface__.toMap
+      surface__.parforeach(cpu_pool, cpus) { case (last_soln, _) =>
         val nodes = last_soln.values.flatMap(_.nodes)
         local_rules.foreach { rule =>
           nodes.foreach { node =>
