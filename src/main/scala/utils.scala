@@ -3,6 +3,12 @@ package fommil
 import java.lang.IllegalStateException
 
 object util {
+  implicit class StringOpz(private val s: String) extends AnyVal {
+    def leftPad(sym: Char, width: Int): String =
+      if (s.length >= width) s
+      else (sym.toString * (width - s.length)) + s
+  }
+
   implicit class SetOpz[A](private val as: Set[A]) extends AnyVal {
     // equivalent to a1.intersects(a2).nonEmpty
     def overlaps(that: Set[A]): Boolean = {

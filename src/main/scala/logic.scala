@@ -657,7 +657,7 @@ object Logic {
       case thon: Nand => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
       case _ => false
     }
-    def asCore: Logic = Inv(And(entries))
+    // def asCore: Logic = Inv(And(entries))
   }
 
   case class Nor private[logic](entries: Set[Logic]) extends Logic {
@@ -668,7 +668,7 @@ object Logic {
       case thon: Nor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
       case _ => false
     }
-    def asCore: Logic = Inv(Or(entries))
+    // def asCore: Logic = Inv(Or(entries))
   }
 
   object Inv {
@@ -773,6 +773,7 @@ object Logic {
         // - every term has the same number of components.
         // - every component, and its inverse, appears an equal number of times.
         // - the number of terms is the number of ways to get odd parity (skipped)
+        // TODO calculate the expected terms to exit as early as possible
         if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
           return None
 
@@ -784,7 +785,7 @@ object Logic {
           // subsets(0) gives an empty set allowing for all flipped
           norms.subsets(i).foreach { ss =>
             val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
-            val xor = new Xor(inputs)
+            val xor = new Xor(inputs) // TODO cached asCore lookup would be good
             if (xor.asCore == node) return Some(xor)
           }
         }
@@ -992,7 +993,7 @@ object Main {
     }
 
     val max_steps = 128
-    val max_explored = 1024 * 1024
+    val max_explored = 10 * 1024 * 1024
     val max_width = 128
 
     val obj = Objective.DTL_Components(
