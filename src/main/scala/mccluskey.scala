@@ -13,7 +13,7 @@
 // Outputs the minimal sum of prime implicants to stdout in JSON format,
 // formulating multi-output tables as characteristic functions that are
 // recombined. Note that sometimes the minsums are more efficient if an output
-// channel is inverted which is the responsibility of the user.
+// channel is inverted, which is the responsibility of the user.
 //
 // The interpretation of the output is such that each sum of products is a
 // complement of the circuit that recovers the truth table. For example 'A.B.C'

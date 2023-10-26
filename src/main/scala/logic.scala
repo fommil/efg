@@ -1018,8 +1018,6 @@ object Main {
 
     val baseline = all_my_circuits.map(_._2._1).min
 
-    // TODO add variants with truth table inverted for outputs with more than half true
-
     var step = 0
 
     // we repeat the same work for each output channel a lot of times so rule
