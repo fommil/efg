@@ -81,6 +81,27 @@ class LogicTest extends Test {
 
     assertEquals(or3, xor3.asCore)
     assertEquals(Some(xor3), Xor.from(or3))
+
+    // show that inverting odd inputs leads to the same node (different to orig)
+    val nodes_odd = Set(
+      new Xor(Set(Inv(a), b, c)).asCore, // 1 inv
+      new Xor(Set(a, Inv(b), c)).asCore,
+      new Xor(Set(a, b, Inv(c))).asCore,
+      new Xor(Set(Inv(a), Inv(b), Inv(c))).asCore // 3 invs
+    )
+    assert(1 == nodes_odd.size,
+      s"ODD (${nodes_odd.size})\n${nodes_odd.mkString("\n")}")
+    assert(new Xor(Set(a, b, c)).asCore != nodes_odd.head)
+
+    // inverting even inputs leads to the same
+    val nodes_even = Set(
+      new Xor(Set(a, b, c)).asCore, // norm
+      new Xor(Set(Inv(a), Inv(b), c)).asCore, // 2 invs
+      new Xor(Set(Inv(a), b, Inv(c))).asCore,
+      new Xor(Set(a, Inv(b), Inv(c))).asCore
+    )
+    assert(1 == nodes_even.size,
+      s"EVEN (${nodes_even.size})\n${nodes_even.mkString("\n")}")
   }
 
   def testXNOR: Unit = {
@@ -90,7 +111,6 @@ class LogicTest extends Test {
     )
     val xnor2 = new Xnor(Set(a, b))
     assertEquals(or2, xnor2.asCore)
-    assertEquals(Some(xnor2), Xnor.from(or2))
 
     val or3 = Or(
       And(Inv(a), Inv(b), Inv(c)),
@@ -100,7 +120,6 @@ class LogicTest extends Test {
     )
     val xnor3 = new Xnor(Set(a, b, c))
     assertEquals(or3, xnor3.asCore)
-    assertEquals(Some(xnor3), Xnor.from(or3))
   }
 
   def testOH: Unit = {
@@ -134,13 +153,13 @@ class LogicTest extends Test {
 
     rule.perform(ast).foreach { transformed =>
       assert(transformed != ast, "should only return new forms")
-      (0 until 1 << high).foreach { i =>
-        val in = BitSet.fromBitMask(Array(i))
-        val expected = ast.eval(in)
-        val got = transformed.eval(in)
-        lazy val in_ = (0 to high).map(in(_)).mkString(",")
-        assert(expected == got, s"\nORIG  = $ast\nTRANS = $transformed\nIN    = ${in_} ($expected, $got) ")
-      }
+        (0 until 1 << high).foreach { i =>
+          val in = BitSet.fromBitMask(Array(i))
+          val expected = ast.eval(in)
+          val got = transformed.eval(in)
+          lazy val in_ = (0 to high).map(in(_)).mkString(",")
+          assert(expected == got, s"\nORIG  = $ast\nTRANS = $transformed\nIN    = ${in_} ($expected, $got) ")
+        }
     }
   }
 
@@ -152,13 +171,13 @@ class LogicTest extends Test {
     rule.perform(Set(ast)).foreach { transform =>
       val transformed = ast.replace(transform)
       assert(transformed != ast, "should only return new forms")
-      (0 until 1 << high).foreach { i =>
-        val in = BitSet.fromBitMask(Array(i))
-        val expected = ast.eval(in)
-        val got = transformed.eval(in)
-        lazy val in_ = (0 to high).map(in(_)).mkString(",")
-        assert(expected == got, s"\nORIG  = $ast\nTRANS = $transformed\nIN    = ${in_} ($expected, $got) ")
-      }
+        (0 until 1 << high).foreach { i =>
+          val in = BitSet.fromBitMask(Array(i))
+          val expected = ast.eval(in)
+          val got = transformed.eval(in)
+          lazy val in_ = (0 to high).map(in(_)).mkString(",")
+          assert(expected == got, s"\nORIG  = $ast\nTRANS = $transformed\nIN    = ${in_} ($expected, $got) ")
+        }
     }
   }
 

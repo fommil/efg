@@ -147,12 +147,11 @@ object LocalRule {
         (2 to es.size).toList.flatMap { i =>
           es.subsets(i).flatMap { sub =>
             val n = new Or(sub)
-            Set(
-              Xor.from(n),
-              Xnor.from(n),
-              OneHot.from(n),
+            Xor.from(n).orElse(
+              OneHot.from(n)
+            ).orElse(
               NotOneHot.from(n)
-            ).flatten.map { gate =>
+            ).map { gate =>
               Or(es.diff(sub) + gate)
             }
           }
@@ -300,18 +299,18 @@ object LocalRule {
       case And(nodes) => List(Inv(Or(nodes.map(Inv(_)))))
       case Or(nodes) => List(Inv(And(nodes.map(Inv(_)))))
 
-      // flipping an even number of inputs retains the same gate, flipping an
-      // odd number swaps between XOR/XNOR.
+      // flipping an even number of inputs is equivalent to the origin (the
+      // asCore is identical), flipping an odd number swaps between XOR/XNOR.
       case Xor(entries) => (1 to entries.size).toList.flatMap { i =>
         entries.subsets(i).map { sub =>
-          if (i % 2 == 0) Xor(sub.map(Inv(_)) ++ entries.diff(sub))
-          else Xnor(sub.map(Inv(_)) ++ entries.diff(sub))
+          if (i % 2 == 0) new Xor(sub.map(Inv(_)) ++ entries.diff(sub))
+          else new Xnor(sub.map(Inv(_)) ++ entries.diff(sub))
         }
       }
       case Xnor(entries) => (1 to entries.size).toList.flatMap { i =>
         entries.subsets(i).map { sub =>
-          if (i % 2 == 0) Xnor(sub.map(Inv(_)) ++ entries.diff(sub))
-          else Xor(sub.map(Inv(_)) ++ entries.diff(sub))
+          if (i % 2 == 0) new Xnor(sub.map(Inv(_)) ++ entries.diff(sub))
+          else new Xor(sub.map(Inv(_)) ++ entries.diff(sub))
         }
       }
 
@@ -551,6 +550,9 @@ object Logic {
   // constructor enforces identity A . 1 = A
   // constructor enforces complementation A . A' = 0
   case class And private[logic](entries: Set[Logic]) extends Logic {
+    assert(!entries.contains(True))
+    assert(!entries.contains(Inv(True)))
+
     override val hashCode: Int = 19 * entries.hashCode
     override def equals(that: Any): Boolean = that match {
       case thon: And => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
@@ -562,6 +564,7 @@ object Logic {
   // constructor enforces identity A + 0 = A
   // constructor enforces complementation A + A' = 1
   case class Or  private[logic](entries: Set[Logic]) extends Logic {
+    assert(!entries.contains(True))
     assert(!entries.contains(Inv(True)))
 
     override val hashCode: Int = 23 * entries.hashCode
@@ -593,12 +596,13 @@ object Logic {
       case _ => false
     }
 
-    def asCore: Logic = Or {
-      (1 to entries.size by 2).flatMap { i: Int =>
+    def asCore: Logic = {
+      val terms: Set[Logic] = (1 to entries.size by 2).flatMap { i: Int =>
         entries.subsets(i).map { odd =>
-          And(odd ++ entries.diff(odd).map(Inv(_)))
+          new And(odd ++ entries.diff(odd).map(Inv(_)))
         }
       }.toSet
+      new Or(terms)
     }
   }
 
@@ -611,12 +615,13 @@ object Logic {
       case thon: Xnor => hashCode == thon.hashCode && entries.size == thon.entries.size && entries == thon.entries
       case _ => false
     }
-    def asCore: Logic = Or {
-      (0 to entries.size by 2).flatMap { i: Int =>
+    def asCore: Logic = {
+      val terms: Set[Logic] = (0 to entries.size by 2).flatMap { i: Int =>
         entries.subsets(i).map { even =>
-          And(even ++ entries.diff(even).map(Inv(_)))
+          new And(even ++ entries.diff(even).map(Inv(_)))
         }
       }.toSet
+      new Or(terms)
     }
   }
 
@@ -752,8 +757,6 @@ object Logic {
       }
     }
 
-    // note that Xor(Xor(inputs).asCore) == Xor(inputs) is not true in general,
-    // as inputs may be inverted in pairs.
     def from(node: Logic): Option[Logic] = node match {
       case Inv(Xnor(es)) => Some(new Xor(es))
       case Or(es) =>
@@ -773,22 +776,20 @@ object Logic {
         // - every term has the same number of components.
         // - every component, and its inverse, appears an equal number of times.
         // - the number of terms is the number of ways to get odd parity (skipped)
-        // TODO calculate the expected terms to exit as early as possible
+        // - the number of expected terms is (norms.size choose N, i.e. binomial coefficient)
+        //   for all odd N up to the size. We ignore this but could do it to exclude earlier.
         if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
           return None
 
-        // this search is redundant leading to bad performance for negatives,
-        // but is still efficient for positives. We could prune all permutations
-        // of inputs where an even number of inputs have been inverted, but
-        // that's not free.
-        (0 to norms.size).reverse.foreach { i =>
-          // subsets(0) gives an empty set allowing for all flipped
-          norms.subsets(i).foreach { ss =>
-            val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
-            val xor = new Xor(inputs) // TODO cached asCore lookup would be good
-            if (xor.asCore == node) return Some(xor)
-          }
-        }
+        // we could search through every possible permutation of norm/inv for
+        // each input but XOR has a wonderful property that flipping even inputs
+        // makes no difference to the core form and flipping any one input is
+        // the only other possibility we need to consider.
+        val xor1 = new Xor(norms)
+        if (xor1.asCore == node) return Some(xor1)
+        val xor2 = new Xor(norms.tail + Inv(norms.head))
+        if (xor2.asCore == node) return Some(xor2)
+
         None
 
       case _ => None
@@ -810,37 +811,6 @@ object Logic {
         require_normed(entries_)
         new Xnor(entries_)
       }
-    }
-
-    def from(node: Logic): Option[Logic] = node match {
-      case Inv(Xor(es)) => Some(new Xnor(es))
-      case Or(es) =>
-        val (invalid, terms) = es.partitionMap {
-          case And(es_) => Right(es_)
-          case other => Left(other)
-        }
-        if (invalid.nonEmpty)
-          return None
-        val comps = terms.flatten
-        val norms = comps.map {
-          case Inv(e) => e
-          case e => e
-        }
-
-        // XNOR has roughly the same properties as XOR
-        if (norms.size < 2 || terms.map(_.size).size != 1 || comps.size != 2 * norms.size)
-          return None
-
-        (0 to norms.size).reverse.foreach { i =>
-          // subsets(0) gives an empty set allowing for all flipped
-          norms.subsets(i).foreach { ss =>
-            val inputs = ss ++ (norms.diff(ss).map(Inv(_)))
-            val xnor = new Xnor(inputs)
-            if (xnor.asCore == node) return Some(xnor)
-          }
-        }
-        None
-      case _ => None
     }
   }
 
@@ -970,7 +940,7 @@ object Logic {
 object Main {
 
   private val cpus = Runtime.getRuntime.availableProcessors
-  private val cpu_pool = Pool.bounded("cpu", cpus)
+  private val cpu_pool = Pool.forkjoin("cpu", cpus)
 
   def main(args: Array[String]): Unit = {
     require(args.length >= 1, "an input file must be provided")
@@ -1056,10 +1026,10 @@ object Main {
       val surface__ = surface_.toList.sortBy(_._2._1).take(max_width)
       surface_ = surface__.toMap
       surface__.parforeach(cpu_pool, cpus) { case (last_soln, _) =>
-        val nodes = last_soln.values.flatMap(_.nodes)
+        val nodes = last_soln.values.toSet.flatMap((n: Logic) => n.nodes).toList
         local_rules.foreach { rule =>
-          nodes.foreach { node =>
-            rule.perform(node).foreach { repl =>
+          nodes.parforeach(cpu_pool, cpus) { node =>
+            rule.perform(node).parforeach(cpu_pool, cpus) { repl =>
               // System.err.println(s"replacing $node with $repl via $rule")
               val update = last_soln.map {
                 case (name, circuit) => name -> circuit.replace(node, repl)
@@ -1069,8 +1039,8 @@ object Main {
           }
         }
 
-        global_rules.foreach { rule =>
-          rule.perform(last_soln.values.toSet).foreach { repl =>
+        global_rules.parforeach(cpu_pool, cpus) { rule =>
+          rule.perform(last_soln.values.toSet).parforeach(cpu_pool, cpus) { repl =>
             val update = last_soln.map {
               case (name, circuit) => name -> circuit.replace(repl)
             }

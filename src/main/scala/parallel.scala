@@ -54,6 +54,12 @@ object Pool {
 
   // Like constrained but allows some work on the calling thread.
   def bounded(name: String, threads_max: Int): Pool = constrained(name, threads_max).copy(block_caller = false)
+
+  def forkjoin(name: String, threads_min: Int): Pool = Pool(
+    name,
+    false,
+    Executors.newWorkStealingPool(threads_min)
+  )
 }
 
 final class NamedThreadFactory(name: String) extends ThreadFactory {
