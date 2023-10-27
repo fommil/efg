@@ -76,6 +76,18 @@ object Connection {
     override def toString = i.toString
   }
 
+  // in lieu of a shapely rule...
+  implicit val ordering: Ordering[Connection] = new Ordering[Connection] {
+    private val underlying_i = Ordering[Int]
+    private val underlying_s = Ordering[String]
+    def compare(x: Connection, y: Connection): Int = (x, y) match {
+      case (Ref(_), Literal(_)) => -1
+      case (Literal(_), Ref(_)) => 1
+      case (Ref(a), Ref(b)) => underlying_i.compare(a, b)
+      case (Literal(a), Literal(b)) => underlying_s.compare(a, b)
+    }
+  }
+
   implicit val encoder: jzon.Encoder[Connection] = new jzon.Encoder[Connection] {
     def unsafeEncode(a: Connection, indent: Option[Int], out: java.io.Writer): Unit = a match {
       case Literal(s) => jzon.Encoder[String].unsafeEncode(s, indent, out)
@@ -156,13 +168,13 @@ object Netlist {
         // the "ref" doesn't seem to change the rendering
         Cell("generic", Map("ref" -> "OH"),
           Map("in0" -> "input", "out0" -> "output"),
-          Map("in0" -> n.entries.map(con(_)).toList, "out0" -> List(y)))
+          Map("in0" -> n.entries.map(con(_)).toList.sorted, "out0" -> List(y)))
       }
       case (n: NotOneHot, y) => Right { s"NotOneHot$$$y" ->
         // the "ref" doesn't seem to change the rendering
         Cell("generic", Map("ref" -> "NOH"),
           Map("in0" -> "input", "out0" -> "output"),
-          Map("in0" -> n.entries.map(con(_)).toList, "out0" -> List(y)))
+          Map("in0" -> n.entries.map(con(_)).toList.sorted, "out0" -> List(y)))
       }
       case (n: Inv, y) => Right { s"Inv$$$y" ->
         Cell("$_NOT_", Map.empty, Map("A" -> "input", "Y" -> "output"),
@@ -170,58 +182,58 @@ object Netlist {
       }
       case (n: And, y) => Right { s"And$$$y" -> {
         if (n.entries.size == 2) {
-          val es = n.entries.toList.map(con(_))
+          val es = n.entries.toList.map(con(_)).sorted
           Cell("$_AND_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
             Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
         } else
             Cell("$reduce_and", Map.empty, Map("A" -> "input", "Y" -> "output"),
-              Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+              Map("A" -> n.entries.map(con(_)).toList.sorted, "Y" -> List(y)))
       }}
       case (n: Or, y) => Right { s"Or$$$y" -> {
         if (n.entries.size == 2) {
-          val es = n.entries.toList.map(con(_))
+          val es = n.entries.toList.map(con(_)).sorted
           Cell("$_OR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
             Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
         } else
             Cell("$reduce_or", Map.empty, Map("A" -> "input", "Y" -> "output"),
-              Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+              Map("A" -> n.entries.map(con(_)).toList.sorted, "Y" -> List(y)))
       }}
       case (n: Xor, y) => Right { s"Xor$$$y" -> {
         if (n.entries.size == 2) {
-          val es = n.entries.toList.map(con(_))
+          val es = n.entries.toList.map(con(_)).sorted
           Cell("$_XOR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
             Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
         } else
             Cell("$reduce_xor", Map.empty, Map("A" -> "input", "Y" -> "output"),
-              Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+              Map("A" -> n.entries.map(con(_)).toList.sorted, "Y" -> List(y)))
       }}
       case (n: Xnor, y) => Right { s"Xnor$$$y" -> {
         if (n.entries.size == 2) {
-          val es = n.entries.toList.map(con(_))
+          val es = n.entries.toList.map(con(_)).sorted
           Cell("$_XNOR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
             Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
         } else
             Cell("$reduce_xnor", Map.empty, Map("A" -> "input", "Y" -> "output"),
-              Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+              Map("A" -> n.entries.map(con(_)).toList.sorted, "Y" -> List(y)))
       }}
       case (n: In, y) => Left { names(n) -> Port("input", List(y)) }
       case (n: Nand, y) => Right { s"Nand$$$y" -> {
         if (n.entries.size == 2) {
-          val es = n.entries.toList.map(con(_))
+          val es = n.entries.toList.map(con(_)).sorted
           Cell("$_NAND_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
             Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
         } else
             Cell("$reduce_nand", Map.empty, Map("A" -> "input", "Y" -> "output"),
-              Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+              Map("A" -> n.entries.map(con(_)).toList.sorted, "Y" -> List(y)))
       }}
       case (n: Nor, y) => Right { s"Nor$$$y" -> {
         if (n.entries.size == 2) {
-          val es = n.entries.toList.map(con(_))
+          val es = n.entries.toList.map(con(_)).sorted
           Cell("$_NOR_", Map.empty, Map("A" -> "input", "B" -> "input", "Y" -> "output"),
             Map("A" -> List(es(0)), "B" -> List(es(1)), "Y" -> List(y)))
         } else
             Cell("$reduce_nor", Map.empty, Map("A" -> "input", "Y" -> "output"),
-              Map("A" -> n.entries.map(con(_)).toList, "Y" -> List(y)))
+              Map("A" -> n.entries.map(con(_)).toList.sorted, "Y" -> List(y)))
       }}
     }
 
