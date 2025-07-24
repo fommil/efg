@@ -31,16 +31,19 @@ object Objective {
 
     private def calc(node: DTL): Double = node match {
       case REF(_)  => 0
-      case AND(es) => 1000
-      case  OR(es) => 1000
-      case NOT(_)  => 1
+      case AND(es) => resistor + es.size * diode
+      case  OR(es) => resistor + es.size * diode
+      case NOT(_)  => 2 * resistor + npn
       // case BUF(_, _)  => ???
-      case NOR(es) => if (es.size > 2) 1000 else 1
-      case NOH(es) => 1000
-      case  OH(es) => 1000
-      case XOR(es) => 1000
-      case XNOR(es) => 1000
-      case NAND(es) => if (es.size > 2) 1000 else 1
+      case NOR(es) =>
+        // small NOR uses a voltage divider (can this scale to more inputs?)
+        if (es.size < 3) (2 + es.size) * resistor + npn
+        else 3 * resistor + es.size * diode + npn
+      case NOH(es) => 2 * resistor + npn + es.size * diode
+      case  OH(es) => 2 * resistor + pnp + es.size * diode
+      case XOR(es) => (es.size - 1) * (3 * resistor + 2 * npn)
+      case XNOR(es) => (es.size - 1) * (3 * resistor + 2 * pnp)
+      case NAND(es) => 2 * resistor + es.size * diode + npn // saves a resistor
     }
   }
 

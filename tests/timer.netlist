@@ -1,58 +1,30 @@
 {
   "modules" : {
-    "timer.truth (6.0)" : {
+    "timer.truth (5.5)" : {
       "ports" : {
         "A" : {
           "direction" : "input",
-          "bits" : [6]
+          "bits" : [0]
         },
         "M" : {
           "direction" : "input",
-          "bits" : [0]
+          "bits" : [2]
         },
         "CLK" : {
           "direction" : "output",
-          "bits" : [5]
+          "bits" : [3]
         },
         "H" : {
           "direction" : "input",
-          "bits" : [4]
+          "bits" : [8]
         },
         "S" : {
           "direction" : "input",
-          "bits" : [2]
+          "bits" : [5]
         }
       },
       "cells" : {
-        "Nand$1" : {
-          "type" : "$_NAND_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [0],
-            "B" : [2],
-            "Y" : [1]
-          }
-        },
-        "Nand$8" : {
-          "type" : "$_NAND_",
-          "attributes" : {},
-          "port_directions" : {
-            "A" : "input",
-            "B" : "input",
-            "Y" : "output"
-          },
-          "connections" : {
-            "A" : [3],
-            "B" : [4],
-            "Y" : [8]
-          }
-        },
-        "Inv$3" : {
+        "Inv$7" : {
           "type" : "$_NOT_",
           "attributes" : {},
           "port_directions" : {
@@ -60,11 +32,11 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [2],
-            "Y" : [3]
+            "A" : [8],
+            "Y" : [7]
           }
         },
-        "Nor$5" : {
+        "Nor$3" : {
           "type" : "$_NOR_",
           "attributes" : {},
           "port_directions" : {
@@ -73,13 +45,13 @@
             "Y" : "output"
           },
           "connections" : {
-            "A" : [6],
-            "B" : [9],
-            "Y" : [5]
+            "A" : [0],
+            "B" : [6],
+            "Y" : [3]
           }
         },
-        "Nand$7" : {
-          "type" : "$_NAND_",
+        "Nor$6" : {
+          "type" : "$_NOR_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
@@ -88,20 +60,36 @@
           },
           "connections" : {
             "A" : [1],
-            "B" : [8],
-            "Y" : [7]
+            "B" : [4],
+            "Y" : [6]
           }
         },
-        "Inv$9" : {
-          "type" : "$_NOT_",
+        "And$1" : {
+          "type" : "$_AND_",
           "attributes" : {},
           "port_directions" : {
             "A" : "input",
+            "B" : "input",
             "Y" : "output"
           },
           "connections" : {
-            "A" : [7],
-            "Y" : [9]
+            "A" : [2],
+            "B" : [5],
+            "Y" : [1]
+          }
+        },
+        "Nor$4" : {
+          "type" : "$_NOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [5],
+            "B" : [7],
+            "Y" : [4]
           }
         }
       }
