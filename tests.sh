@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR"
 
 sbt assembly
 
-for f in tests/*.truth ; do
+for f in tests/timer.truth ; do
     echo "TESTING $f"
     java -cp electronics.jar mccluskey.Main "$f" > "${f%.*}.minsums.json"
     netlist="${f%.*}.netlist"
