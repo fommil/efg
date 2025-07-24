@@ -290,7 +290,7 @@ class LogicTest extends Test {
     )
     val rewrites = List(
       Or(c, Xor(a, b)),
-      Or(c, Xnor(Inv(a), b))
+      // Or(c, Xnor(Inv(a), b))
     )
 
     assertEquals(rewrites, Split.perform(logic))

@@ -1,127 +1,122 @@
 <?xml version="1.0"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:s="https://github.com/nturley/netlistsvg" width="386" height="179">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:s="https://github.com/nturley/netlistsvg" width="385" height="179">
   <style>svg {
-  stroke:#000;
-  fill:none;
-}
-text {
-  fill:#000;
-  stroke:none;
-  font-size:10px;
-  font-weight: bold;
-  font-family: "Courier New", monospace;
-}
-line {
-    stroke-linecap: round;
-}
-.nodelabel {
-  text-anchor: middle;
-}
-.inputPortLabel {
-  text-anchor: end;
-}
-.splitjoinBody {
-  fill:#000;
-}</style>
-  <g s:type="not" transform="translate(78,87)" s:width="30" s:height="20" id="cell_Inv$6">
+    stroke:#000;
+    fill:none;
+  }
+  text {
+    fill:#000;
+    stroke:none;
+    font-size:10px;
+    font-weight: bold;
+    font-family: "Courier New", monospace;
+  }
+  .nodelabel {
+    text-anchor: middle;
+  }
+  .inputPortLabel {
+    text-anchor: end;
+  }
+  .splitjoinBody {
+    fill:#000;
+  }</style>
+  <g s:type="not" transform="translate(77,87)" s:width="30" s:height="20" id="cell_Inv$6">
     <s:alias val="$_NOT_"/>
     <s:alias val="$not"/>
     <s:alias val="$logic_not"/>
     <path d="M0,0 L0,20 L20,10 Z" class="cell_Inv$6"/>
-    <circle cx="24" cy="10" r="3" class="cell_Inv$6"/>
-    <g s:x="-1" s:y="10" s:pid="A"/>
-    <g s:x="27" s:y="10" s:pid="Y"/>
+    <circle cx="23" cy="10" r="3" class="cell_Inv$6"/>
+    <g s:x="0" s:y="10" s:pid="A"/>
+    <g s:x="25" s:y="10" s:pid="Y"/>
   </g>
-  <g s:type="and" transform="translate(210,137)" s:width="30" s:height="25" id="cell_And$7">
+  <g s:type="and" transform="translate(209,137)" s:width="30" s:height="25" id="cell_And$7">
     <s:alias val="$and"/>
     <s:alias val="$logic_and"/>
     <s:alias val="$_AND_"/>
-    <s:alias val="$reduce_and"/>
     <path d="M0,0 L0,25 L15,25 A15 12.5 0 0 0 15,0 Z" class="cell_And$7"/>
     <g s:x="0" s:y="5" s:pid="A"/>
     <g s:x="0" s:y="20" s:pid="B"/>
     <g s:x="30" s:y="12.5" s:pid="Y"/>
   </g>
-  <g s:type="or" transform="translate(279,129.5)" s:width="30" s:height="25" id="cell_Or$8">
+  <g s:type="or" transform="translate(278,129.5)" s:width="30" s:height="25" id="cell_Or$8">
     <s:alias val="$or"/>
     <s:alias val="$logic_or"/>
     <s:alias val="$_OR_"/>
-    <s:alias val="$reduce_or"/>
-    <s:alias val="$reduce_bool"/>
-    <path d="M0,0 A30 25 0 0 1 0,25 A30 25 0 0 0 30,12.5 A30 25 0 0 0 0,0" class="cell_Or$8"/>
-    <g s:x="2" s:y="5" s:pid="A"/>
-    <g s:x="2" s:y="20" s:pid="B"/>
+    <path d="M0,25 L0,25 L15,25 A15 12.5 0 0 0 15,0 L0,0" class="cell_Or$8"/>
+    <path d="M0,0 A30 25 0 0 1 0,25" class="cell_Or$8"/>
+    <g s:x="3" s:y="5" s:pid="A"/>
+    <g s:x="3" s:y="20" s:pid="B"/>
     <g s:x="30" s:y="12.5" s:pid="Y"/>
   </g>
-  <g s:type="reduce_nor" transform="translate(208,69.5)" s:width="33" s:height="25" id="cell_Nor$4">
+  <g s:type="reduce_nor" transform="translate(207,69.5)" s:width="33" s:height="25" id="cell_Nor$4">
     <s:alias val="$nor"/>
     <s:alias val="$reduce_nor"/>
     <s:alias val="$_NOR_"/>
     <s:alias val="$_ORNOT_"/>
-    <path d="M0,0 A30 25 0 0 1 0,25 A30 25 0 0 0 30,12.5 A30 25 0 0 0 0,0" class="cell_Nor$4"/>
-    <circle cx="33" cy="12.5" r="3" class="cell_Nor$4"/>
-    <g s:x="2" s:y="5" s:pid="A"/>
-    <g s:x="2" s:y="20" s:pid="B"/>
+    <path d="M0,25 L0,25 L15,25 A15 12.5 0 0 0 15,0 L0,0" class="cell_Nor$4"/>
+    <path d="M0,0 A30 25 0 0 1 0,25" class="cell_Nor$4"/>
+    <circle cx="34" cy="12.5" r="3" class="cell_Nor$4"/>
+    <g s:x="3" s:y="5" s:pid="A"/>
+    <g s:x="3" s:y="20" s:pid="B"/>
     <g s:x="36" s:y="12.5" s:pid="Y"/>
   </g>
-  <g s:type="or" transform="translate(143,77)" s:width="30" s:height="25" id="cell_Or$1">
+  <g s:type="or" transform="translate(142,77)" s:width="30" s:height="25" id="cell_Or$1">
     <s:alias val="$or"/>
     <s:alias val="$logic_or"/>
     <s:alias val="$_OR_"/>
-    <s:alias val="$reduce_or"/>
-    <s:alias val="$reduce_bool"/>
-    <path d="M0,0 A30 25 0 0 1 0,25 A30 25 0 0 0 30,12.5 A30 25 0 0 0 0,0" class="cell_Or$1"/>
-    <g s:x="2" s:y="5" s:pid="A"/>
-    <g s:x="2" s:y="20" s:pid="B"/>
+    <path d="M0,25 L0,25 L15,25 A15 12.5 0 0 0 15,0 L0,0" class="cell_Or$1"/>
+    <path d="M0,0 A30 25 0 0 1 0,25" class="cell_Or$1"/>
+    <g s:x="3" s:y="5" s:pid="A"/>
+    <g s:x="3" s:y="20" s:pid="B"/>
     <g s:x="30" s:y="12.5" s:pid="Y"/>
   </g>
-  <g s:type="inputExt" transform="translate(143,22)" s:width="30" s:height="20" id="cell_i0">
+  <g s:type="inputExt" transform="translate(142,22)" s:width="30" s:height="20" id="cell_i0">
     <text x="15" y="-4" class="nodelabel cell_i0" s:attribute="ref">i0</text>
     <s:alias val="$_inputExt_"/>
     <path d="M0,0 L0,20 L15,20 L30,10 L15,0 Z" class="cell_i0"/>
-    <g s:x="30" s:y="10" s:pid="Y"/>
+    <g s:x="28" s:y="10" s:pid="Y"/>
   </g>
-  <g s:type="inputExt" transform="translate(143,147)" s:width="30" s:height="20" id="cell_i3">
+  <g s:type="inputExt" transform="translate(142,147)" s:width="30" s:height="20" id="cell_i3">
     <text x="15" y="-4" class="nodelabel cell_i3" s:attribute="ref">i3</text>
     <s:alias val="$_inputExt_"/>
     <path d="M0,0 L0,20 L15,20 L30,10 L15,0 Z" class="cell_i3"/>
-    <g s:x="30" s:y="10" s:pid="Y"/>
+    <g s:x="28" s:y="10" s:pid="Y"/>
   </g>
-  <g s:type="inputExt" transform="translate(78,32)" s:width="30" s:height="20" id="cell_i1">
+  <g s:type="inputExt" transform="translate(77,32)" s:width="30" s:height="20" id="cell_i1">
     <text x="15" y="-4" class="nodelabel cell_i1" s:attribute="ref">i1</text>
     <s:alias val="$_inputExt_"/>
     <path d="M0,0 L0,20 L15,20 L30,10 L15,0 Z" class="cell_i1"/>
-    <g s:x="30" s:y="10" s:pid="Y"/>
+    <g s:x="28" s:y="10" s:pid="Y"/>
   </g>
   <g s:type="inputExt" transform="translate(12,87)" s:width="30" s:height="20" id="cell_i2">
     <text x="15" y="-4" class="nodelabel cell_i2" s:attribute="ref">i2</text>
     <s:alias val="$_inputExt_"/>
     <path d="M0,0 L0,20 L15,20 L30,10 L15,0 Z" class="cell_i2"/>
-    <g s:x="30" s:y="10" s:pid="Y"/>
+    <g s:x="28" s:y="10" s:pid="Y"/>
   </g>
-  <g s:type="outputExt" transform="translate(344,132)" s:width="30" s:height="20" id="cell_o0">
+  <g s:type="outputExt" transform="translate(343,132)" s:width="30" s:height="20" id="cell_o0">
     <text x="15" y="-4" class="nodelabel cell_o0" s:attribute="ref">o0</text>
     <s:alias val="$_outputExt_"/>
     <path d="M30,0 L30,20 L15,20 L0,10 L15,0 Z" class="cell_o0"/>
     <g s:x="0" s:y="10" s:pid="A"/>
   </g>
-  <line x1="42" x2="77" y1="97" y2="97" class="net_2 width_1" style="stroke-width: 1"/>
-  <line x1="173" x2="183" y1="89.5" y2="89.5" class="net_1 width_1" style="stroke-width: 1"/>
-  <line x1="183" x2="183" y1="89.5" y2="142" class="net_1 width_1" style="stroke-width: 1"/>
-  <circle cx="183" cy="89.5" r="2" style="fill:#000" class="net_1 width_1"/>
-  <line x1="183" x2="210" y1="142" y2="142" class="net_1 width_1" style="stroke-width: 1"/>
-  <line x1="173" x2="210" y1="89.5" y2="89.5" class="net_1 width_1" style="stroke-width: 1"/>
-  <line x1="173" x2="210" y1="157" y2="157" class="net_5 width_1" style="stroke-width: 1"/>
-  <line x1="244" x2="254" y1="82" y2="82" class="net_4 width_1" style="stroke-width: 1"/>
-  <line x1="254" x2="254" y1="82" y2="134.5" class="net_4 width_1" style="stroke-width: 1"/>
-  <line x1="254" x2="281" y1="134.5" y2="134.5" class="net_4 width_1" style="stroke-width: 1"/>
-  <line x1="240" x2="281" y1="149.5" y2="149.5" class="net_7 width_1" style="stroke-width: 1"/>
-  <line x1="173" x2="183" y1="32" y2="32" class="net_0 width_1" style="stroke-width: 1"/>
-  <line x1="183" x2="183" y1="32" y2="74.5" class="net_0 width_1" style="stroke-width: 1"/>
-  <line x1="183" x2="210" y1="74.5" y2="74.5" class="net_0 width_1" style="stroke-width: 1"/>
-  <line x1="108" x2="118" y1="42" y2="42" class="net_3 width_1" style="stroke-width: 1"/>
-  <line x1="118" x2="118" y1="42" y2="82" class="net_3 width_1" style="stroke-width: 1"/>
-  <line x1="118" x2="145" y1="82" y2="82" class="net_3 width_1" style="stroke-width: 1"/>
-  <line x1="105" x2="145" y1="97" y2="97" class="net_6 width_1" style="stroke-width: 1"/>
-  <line x1="309" x2="344" y1="142" y2="142" class="net_8 width_1" style="stroke-width: 1"/>
+  <line x1="40" x2="77" y1="97" y2="97" class="net_2"/>
+  <line x1="172" x2="182" y1="89.5" y2="89.5" class="net_1"/>
+  <line x1="182" x2="182" y1="89.5" y2="142" class="net_1"/>
+  <circle cx="182" cy="89.5" r="2" style="fill:#000" class="net_1"/>
+  <line x1="182" x2="209" y1="142" y2="142" class="net_1"/>
+  <line x1="172" x2="210" y1="89.5" y2="89.5" class="net_1"/>
+  <line x1="170" x2="209" y1="157" y2="157" class="net_5"/>
+  <line x1="243" x2="253" y1="82" y2="82" class="net_4"/>
+  <line x1="253" x2="253" y1="82" y2="134.5" class="net_4"/>
+  <line x1="253" x2="281" y1="134.5" y2="134.5" class="net_4"/>
+  <line x1="239" x2="281" y1="149.5" y2="149.5" class="net_7"/>
+  <line x1="170" x2="182" y1="32" y2="32" class="net_0"/>
+  <line x1="182" x2="182" y1="32" y2="74.5" class="net_0"/>
+  <line x1="182" x2="210" y1="74.5" y2="74.5" class="net_0"/>
+  <line x1="105" x2="117" y1="42" y2="42" class="net_3"/>
+  <line x1="117" x2="117" y1="42" y2="82" class="net_3"/>
+  <line x1="117" x2="145" y1="82" y2="82" class="net_3"/>
+  <line x1="102" x2="145" y1="97" y2="97" class="net_6"/>
+  <line x1="308" x2="343" y1="142" y2="142" class="net_8"/>
 </svg>
