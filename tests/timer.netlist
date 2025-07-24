@@ -1,0 +1,98 @@
+{
+  "modules" : {
+    "timer.truth (5.5)" : {
+      "ports" : {
+        "A" : {
+          "direction" : "input",
+          "bits" : [0]
+        },
+        "M" : {
+          "direction" : "input",
+          "bits" : [2]
+        },
+        "CLK" : {
+          "direction" : "output",
+          "bits" : [3]
+        },
+        "H" : {
+          "direction" : "input",
+          "bits" : [8]
+        },
+        "S" : {
+          "direction" : "input",
+          "bits" : [5]
+        }
+      },
+      "cells" : {
+        "Inv$7" : {
+          "type" : "$_NOT_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [8],
+            "Y" : [7]
+          }
+        },
+        "Nor$3" : {
+          "type" : "$_NOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [0],
+            "B" : [6],
+            "Y" : [3]
+          }
+        },
+        "Nor$6" : {
+          "type" : "$_NOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [1],
+            "B" : [4],
+            "Y" : [6]
+          }
+        },
+        "And$1" : {
+          "type" : "$_AND_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [2],
+            "B" : [5],
+            "Y" : [1]
+          }
+        },
+        "Nor$4" : {
+          "type" : "$_NOR_",
+          "attributes" : {},
+          "port_directions" : {
+            "A" : "input",
+            "B" : "input",
+            "Y" : "output"
+          },
+          "connections" : {
+            "A" : [5],
+            "B" : [7],
+            "Y" : [4]
+          }
+        }
+      }
+    }
+  }
+}

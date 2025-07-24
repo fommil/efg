@@ -1,0 +1,22 @@
+# Extracted from the logic in the beneater 8-bit
+# computer series in part 4 of the clock logic:
+#
+# https://www.youtube.com/watch?v=SmQ5K7UQPMM
+#
+# The standard solution uses AND, OR and INV (3 chips) but he alse gives a
+# version using NAND (2 chips) and that can be replaced with NAND and INV (2
+# chips). We also have the option of a free INV on the S input.
+#
+# Inputs are
+#
+# A - automatic clock
+# S - signal to choose between auto and manual
+# M - manual clock (step debugger)
+# H - HaLT that can come from the program.
+#
+@ A S M H | CLK
+  0 x 0 0 | 0
+  1 x 0 0 | 1
+  x 0 1 0 | 0
+  x 1 1 0 | 1
+  x x x 1 | 0

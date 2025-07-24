@@ -1,0 +1,10 @@
+{
+  "input_names" : ["A", "S", "M", "H"],
+  "symbols" : {
+    "A" : "-110",
+    "B" : "1-00"
+  },
+  "solutions" : [{
+    "CLK" : ["A", "B"]
+  }]
+}
